@@ -130,6 +130,15 @@ obj-${CONFIG_MACH_VENTANA}              += board-ventana-panel.o
 obj-${CONFIG_MACH_VENTANA}              += board-ventana-sensors.o
 obj-${CONFIG_MACH_VENTANA}              += board-ventana-memory.o
 
+obj-${CONFIG_MACH_TF101}                += board-tf101.o
+obj-${CONFIG_MACH_TF101}                += board-tf101-pinmux.o
+obj-${CONFIG_MACH_TF101}                += board-tf101-sdhci.o
+obj-${CONFIG_MACH_TF101}                += board-tf101-power.o
+obj-${CONFIG_MACH_TF101}                += board-tf101-panel.o
+obj-${CONFIG_MACH_TF101}                += board-tf101-sensors.o
+obj-${CONFIG_MACH_TF101}                += board-tf101-memory.o
+obj-${CONFIG_MACH_TF101}                += board-tf101-sysfs.o
+
 obj-${CONFIG_MACH_ARUBA}                += board-aruba.o
 obj-${CONFIG_MACH_ARUBA}                += board-aruba-panel.o
 obj-${CONFIG_MACH_ARUBA}                += board-aruba-pinmux.o

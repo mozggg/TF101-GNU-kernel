@@ -81,6 +81,13 @@ config MACH_VENTANA
        help
          Support for NVIDIA Ventana development platform
 
+config MACH_TF101
+       bool "ASUS Transformer TF101"
+       depends on ARCH_TEGRA_2x_SOC
+       select MACH_HAS_SND_SOC_TEGRA_WM8903 if SND_SOC
+       help
+         Support for ASUS EEE Pad Transformer TF101 tablet platform
+
 config MACH_KAEN
        bool "Kaen board"
        depends on ARCH_TEGRA_2x_SOC
