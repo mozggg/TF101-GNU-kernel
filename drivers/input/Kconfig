@@ -170,6 +170,15 @@ config INPUT_KEYRESET
 	  To compile this driver as a module, choose M here: the
 	  module will be called keyreset.
 
+config INPUT_ASUSEC
+	tristate "ASUS embedded controller interface"
+	depends on I2C
+	---help---
+	  Say Y here if you want to support the TF101 dock;
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called asusec.
+
 comment "Input Device Drivers"
 
 source "drivers/input/keyboard/Kconfig"
