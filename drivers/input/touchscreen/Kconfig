@@ -374,6 +374,13 @@ config TOUCHSCREEN_MIGOR
 	  To compile this driver as a module, choose M here: the
 	  module will be called migor_ts.
 
+config TOUCHSCREEN_MXT1386
+	tristate "ATMEL mXT1386 I2C touchscreen driver"
+	depends on I2C
+	default n
+	help
+	  Say Y here to enable mXT1386 I2C touchscreen support
+
 config TOUCHSCREEN_PANJIT_I2C
 	tristate "PANJIT I2C touchscreen driver"
 	depends on I2C
