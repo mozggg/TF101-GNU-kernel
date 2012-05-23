@@ -2985,20 +2985,25 @@ static int __devinit mxt_probe(struct i2c_client *client,
 		pr_info("maXTouch phys: \"%s\"\n", input->phys);
 		pr_info("maXTouch driver setting abs parameters\n");
 	}
+
+
+
+	// For single touch
+	input_set_abs_params(input, ABS_X, 0, mxt->pdata->max_x, 0, 0);
+	input_set_abs_params(input, ABS_Y, 0, mxt->pdata->max_y, 0, 0);
+	input_set_abs_params(input, ABS_PRESSURE, 0, MXT_MAX_REPORTED_PRESSURE, 0, 0);
+	input_set_abs_params(input, ABS_TOOL_WIDTH, 0, MXT_MAX_REPORTED_WIDTH, 0, 0);
+
+	// multi touch
+	input_set_abs_params(input, ABS_MT_POSITION_X, 0, mxt->pdata->max_x, 0, 0);
+	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, mxt->pdata->max_y, 0, 0);
+	input_set_abs_params(input, ABS_MT_TOUCH_MAJOR, 0, 0, 0, 0);
+	input_set_abs_params(input, ABS_MT_WIDTH_MAJOR, 0, 0, 0, 0);
+//	input_set_abs_params(input, ABS_MT_TRACKING_ID, 0, MXT_MAX_NUM_TOUCHES, 0, 0);
+//	input_set_abs_params(input, ABS_MT_PRESSURE, 0, 255, 0, 0); 
+
 	__set_bit(BTN_TOUCH, input->keybit);
 	__set_bit(EV_ABS, input->evbit);
-
-	/* multi touch */
-	input_set_abs_params(input, ABS_MT_POSITION_X, 0,
-						mxt->pdata->max_x, 0, 0);
-	input_set_abs_params(input, ABS_MT_POSITION_Y, 0,
-						mxt->pdata->max_y, 0, 0);
-	input_set_abs_params(input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
-	input_set_abs_params(input, ABS_MT_WIDTH_MAJOR, 0, 30, 0, 0);
-	input_set_abs_params(input, ABS_MT_TRACKING_ID, 0,
-							MXT_MAX_NUM_TOUCHES-1,
-							0, 0);
-	input_set_abs_params(input, ABS_MT_PRESSURE, 0, 255, 0, 0); 
 	__set_bit(EV_SYN, input->evbit);
 	__set_bit(EV_KEY, input->evbit);
 
