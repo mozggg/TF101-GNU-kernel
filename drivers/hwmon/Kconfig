@@ -1359,6 +1359,12 @@ config SENSORS_INA230
 	  Support for the TI INA230 power monitor sensor.
 	  (also works for TI INA226)
 
+config SENSORS_AL3000
+	tristate "Lite-on light sensor"
+	depends on I2C
+	default n
+	help
+		Support for the lite-on AL3000a ambient light sensor.
 
 if ACPI
 
