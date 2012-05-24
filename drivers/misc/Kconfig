@@ -562,6 +562,12 @@ config MAX1749_VIBRATOR
 	---help---
 	Adds a timed output vibrator device node for MAX1749 vibrator motor
 
+config FM34_VOICE_PROCESSOR
+	bool "FM34 voice processor driver"
+	default n
+	---help---
+	Support for the fortemedia FM34 voice processor.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
