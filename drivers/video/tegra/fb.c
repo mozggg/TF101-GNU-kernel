@@ -6,8 +6,6 @@
  *         Colin Cross <ccross@android.com>
  *         Travis Geiselbrecht <travis@palm.com>
  *
- * Copyright (C) 2010-2011 NVIDIA Corporation
- *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -42,9 +40,6 @@
 #include "host/dev.h"
 #include "nvmap/nvmap.h"
 #include "dc/dc_priv.h"
-
-/* Pad pitch to 16-byte boundary. */
-#define TEGRA_LINEAR_PITCH_ALIGNMENT 16
 
 struct tegra_fb_info {
 	struct tegra_dc_win	*win;
@@ -107,9 +102,6 @@ static int tegra_fb_set_par(struct fb_info *info)
 			return -EINVAL;
 		}
 		info->fix.line_length = var->xres * var->bits_per_pixel / 8;
-		/* Pad the stride to 16-byte boundary. */
-		info->fix.line_length = round_up(info->fix.line_length,
-						TEGRA_LINEAR_PITCH_ALIGNMENT);
 		tegra_fb->win->stride = info->fix.line_length;
 		tegra_fb->win->stride_uv = 0;
 		tegra_fb->win->phys_addr_u = 0;
@@ -117,30 +109,51 @@ static int tegra_fb_set_par(struct fb_info *info)
 	}
 
 	if (var->pixclock) {
-		bool stereo;
-		struct fb_videomode m;
-
-		fb_var_to_videomode(&m, var);
+		struct tegra_dc_mode mode;
 
 		info->mode = (struct fb_videomode *)
-			fb_find_nearest_mode(&m, &info->modelist);
+			fb_find_best_mode(var, &info->modelist);
 		if (!info->mode) {
 			dev_warn(&tegra_fb->ndev->dev, "can't match video mode\n");
 			return -EINVAL;
 		}
 
+		mode.pclk = PICOS2KHZ(info->mode->pixclock) * 1000;
+		mode.h_ref_to_sync = 1;
+		mode.v_ref_to_sync = 1;
+		mode.h_sync_width = info->mode->hsync_len;
+		mode.v_sync_width = info->mode->vsync_len;
+		mode.h_back_porch = info->mode->left_margin;
+		mode.v_back_porch = info->mode->upper_margin;
+		mode.h_active = info->mode->xres;
+		mode.v_active = info->mode->yres;
+		mode.h_front_porch = info->mode->right_margin;
+		mode.v_front_porch = info->mode->lower_margin;
 		/*
 		 * only enable stereo if the mode supports it and
 		 * client requests it
 		 */
-		stereo = !!(var->vmode & info->mode->vmode &
-#ifndef CONFIG_TEGRA_HDMI_74MHZ_LIMIT
+		mode.stereo_mode = !!(var->vmode & info->mode->vmode &
 					FB_VMODE_STEREO_FRAME_PACK);
-#else
-					FB_VMODE_STEREO_LEFT_RIGHT);
-#endif
 
-		tegra_dc_set_fb_mode(tegra_fb->win->dc, info->mode, stereo);
+		if (mode.stereo_mode) {
+			mode.pclk *= 2;
+			/* total v_active = yres*2 + activespace */
+			mode.v_active = info->mode->yres*2 +
+					info->mode->vsync_len +
+					info->mode->upper_margin +
+					info->mode->lower_margin;
+		}
+
+		mode.flags = 0;
+
+		if (!(info->mode->sync & FB_SYNC_HOR_HIGH_ACT))
+			mode.flags |= TEGRA_DC_MODE_FLAG_NEG_H_SYNC;
+
+		if (!(info->mode->sync & FB_SYNC_VERT_HIGH_ACT))
+			mode.flags |= TEGRA_DC_MODE_FLAG_NEG_V_SYNC;
+
+		tegra_dc_set_mode(tegra_fb->win->dc, &mode);
 
 		tegra_fb->win->w.full = dfixed_const(info->mode->xres);
 		tegra_fb->win->h.full = dfixed_const(info->mode->yres);
@@ -176,102 +189,6 @@ static int tegra_fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	return 0;
 }
 
-
-static int tegra_fb_setcmap(struct fb_cmap *cmap, struct fb_info *info)
-{
-	struct tegra_fb_info *tegra_fb = info->par;
-	struct tegra_dc *dc = tegra_fb->win->dc;
-	int i;
-	u16 *red = cmap->red;
-	u16 *green = cmap->green;
-	u16 *blue = cmap->blue;
-	int start = cmap->start;
-
-	if (((unsigned)start > 255) || ((start + cmap->len) > 256))
-		return -EINVAL;
-
-	if (info->fix.visual == FB_VISUAL_TRUECOLOR ||
-		info->fix.visual == FB_VISUAL_DIRECTCOLOR) {
-		/*
-		 * For now we are considering color schemes with
-		 * cmap->len <=16 as special case of basic color
-		 * scheme to support fbconsole.But for DirectColor
-		 * visuals(like the one we actually have, that include
-		 * a HW LUT),the way it's intended to work is that the
-		 * actual LUT HW is programmed to the intended values,
-		 * even for small color maps like those with 16 or fewer
-		 * entries. The pseudo_palette is then programmed to the
-		 * identity transform.
-		 */
-		if (cmap->len <= 16) {
-			/* Low-color schemes like fbconsole*/
-			u16 *transp = cmap->transp;
-			u_int vtransp = 0xffff;
-
-			for (i = 0; i < cmap->len; i++) {
-				if (transp)
-					vtransp = *transp++;
-				if (tegra_fb_setcolreg(start++, *red++,
-					*green++, *blue++,
-					vtransp, info))
-						return -EINVAL;
-			}
-		} else {
-			/* High-color schemes*/
-			for (i = 0; i < cmap->len; i++) {
-				dc->fb_lut.r[start+i] = *red++ >> 8;
-				dc->fb_lut.g[start+i] = *green++ >> 8;
-				dc->fb_lut.b[start+i] = *blue++ >> 8;
-			}
-			tegra_dc_update_lut(dc, -1, -1);
-		}
-	}
-	return 0;
-}
-
-static void tegra_fb_flip_win(struct tegra_fb_info *tegra_fb)
-{
-	struct tegra_dc_win *win = tegra_fb->win;
-	struct fb_info *info = tegra_fb->info;
-
-	win->x.full = dfixed_const(0);
-	win->y.full = dfixed_const(0);
-	win->w.full = dfixed_const(tegra_fb->xres);
-	win->h.full = dfixed_const(tegra_fb->yres);
-
-	/* TODO: set to output res dc */
-	win->out_x = 0;
-	win->out_y = 0;
-	win->out_w = tegra_fb->xres;
-	win->out_h = tegra_fb->yres;
-	win->z = 0;
-	win->phys_addr = info->fix.smem_start +
-		(info->var.yoffset * info->fix.line_length) +
-		(info->var.xoffset * (info->var.bits_per_pixel / 8));
-	win->virt_addr = info->screen_base;
-
-	win->phys_addr_u = 0;
-	win->phys_addr_v = 0;
-	win->stride = info->fix.line_length;
-	win->stride_uv = 0;
-
-	switch (info->var.bits_per_pixel) {
-	default:
-		WARN_ON(1);
-		/* fall through */
-	case 32:
-		tegra_fb->win->fmt = TEGRA_WIN_FMT_R8G8B8A8;
-		break;
-	case 16:
-		tegra_fb->win->fmt = TEGRA_WIN_FMT_B5G6R5;
-		break;
-	}
-	win->flags = TEGRA_WIN_FLAG_ENABLED;
-
-	tegra_dc_update_windows(&tegra_fb->win, 1);
-	tegra_dc_sync_windows(&tegra_fb->win, 1);
-}
-
 static int tegra_fb_blank(int blank, struct fb_info *info)
 {
 	struct tegra_fb_info *tegra_fb = info->par;
@@ -279,29 +196,11 @@ static int tegra_fb_blank(int blank, struct fb_info *info)
 	switch (blank) {
 	case FB_BLANK_UNBLANK:
 		dev_dbg(&tegra_fb->ndev->dev, "unblank\n");
-		tegra_fb->win->flags = TEGRA_WIN_FLAG_ENABLED;
 		tegra_dc_enable(tegra_fb->win->dc);
-#if defined(CONFIG_FRAMEBUFFER_CONSOLE)
-		/*
-		* TODO:
-		* This is a work around to provide an unblanking flip
-		* to dc driver, required to display fb-console after
-		* a blank event,and needs to be replaced by a proper
-		* unblanking mechanism
-		*/
-		tegra_fb_flip_win(tegra_fb);
-#endif
 		return 0;
 
-	case FB_BLANK_NORMAL:
-		dev_dbg(&tegra_fb->ndev->dev, "blank - normal\n");
-		tegra_dc_blank(tegra_fb->win->dc);
-		return 0;
-
-	case FB_BLANK_VSYNC_SUSPEND:
-	case FB_BLANK_HSYNC_SUSPEND:
 	case FB_BLANK_POWERDOWN:
-		dev_dbg(&tegra_fb->ndev->dev, "blank - powerdown\n");
+		dev_dbg(&tegra_fb->ndev->dev, "blank\n");
 		tegra_dc_disable(tegra_fb->win->dc);
 		return 0;
 
@@ -363,6 +262,7 @@ static int tegra_fb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long 
 	int i;
 
 	switch (cmd) {
+
 	case FBIO_TEGRA_GET_MODEDB:
 		if (copy_from_user(&modedb, (void __user *)arg, sizeof(modedb)))
 			return -EFAULT;
@@ -413,7 +313,7 @@ static struct fb_ops tegra_fb_ops = {
 	.owner = THIS_MODULE,
 	.fb_check_var = tegra_fb_check_var,
 	.fb_set_par = tegra_fb_set_par,
-	.fb_setcmap = tegra_fb_setcmap,
+	.fb_setcolreg = tegra_fb_setcolreg,
 	.fb_blank = tegra_fb_blank,
 	.fb_pan_display = tegra_fb_pan_display,
 	.fb_fillrect = tegra_fb_fillrect,
@@ -428,6 +328,7 @@ void tegra_fb_update_monspecs(struct tegra_fb_info *fb_info,
 						  struct fb_videomode *mode))
 {
 	struct fb_event event;
+	struct fb_modelist *m;
 	int i;
 
 	mutex_lock(&fb_info->info->lock);
@@ -440,12 +341,6 @@ void tegra_fb_update_monspecs(struct tegra_fb_info *fb_info,
 		memset(&fb_info->info->monspecs, 0x0,
 		       sizeof(fb_info->info->monspecs));
 		memset(&mode, 0x0, sizeof(mode));
-
-		/*
-		 * reset video mode properties to prevent garbage being displayed on 'mode' device.
-		 */
-		fb_info->info->mode = (struct fb_videomode*) NULL;
-
 		tegra_dc_set_mode(fb_info->win->dc, &mode);
 		mutex_unlock(&fb_info->info->lock);
 		return;
@@ -463,6 +358,26 @@ void tegra_fb_update_monspecs(struct tegra_fb_info *fb_info,
 			fb_add_videomode(&specs->modedb[i],
 					 &fb_info->info->modelist);
 		}
+	}
+
+	if (list_empty(&fb_info->info->modelist)) {
+		struct tegra_dc_mode mode;
+		memset(&fb_info->info->var, 0x0, sizeof(fb_info->info->var));
+		memset(&mode, 0x0, sizeof(mode));
+		tegra_dc_set_mode(fb_info->win->dc, &mode);
+	} else {
+		/* in case the first mode was not matched */
+		m = list_first_entry(&fb_info->info->modelist, struct fb_modelist, list);
+		m->mode.flag |= FB_MODE_IS_FIRST;
+		fb_info->info->mode = (struct fb_videomode *)
+			fb_find_best_display(specs, &fb_info->info->modelist);
+
+		/* fb_videomode_to_var doesn't fill out all the members
+		   of fb_var_screeninfo */
+		memset(&fb_info->info->var, 0x0, sizeof(fb_info->info->var));
+
+		fb_videomode_to_var(&fb_info->info->var, fb_info->info->mode);
+		tegra_fb_set_par(fb_info->info);
 	}
 
 	event.info = fb_info->info;
@@ -528,10 +443,6 @@ struct tegra_fb_info *tegra_fb_register(struct nvhost_device *ndev,
 	info->fix.accel		= FB_ACCEL_NONE;
 	info->fix.smem_start	= fb_phys;
 	info->fix.smem_len	= fb_size;
-	info->fix.line_length = fb_data->xres * fb_data->bits_per_pixel / 8;
-	/* Pad the stride to 16-byte boundary. */
-	info->fix.line_length = round_up(info->fix.line_length,
-					TEGRA_LINEAR_PITCH_ALIGNMENT);
 
 	info->var.xres			= fb_data->xres;
 	info->var.yres			= fb_data->yres;
@@ -584,18 +495,6 @@ struct tegra_fb_info *tegra_fb_register(struct nvhost_device *ndev,
 	if (fb_data->flags & TEGRA_FB_FLIP_ON_PROBE) {
 		tegra_dc_update_windows(&tegra_fb->win, 1);
 		tegra_dc_sync_windows(&tegra_fb->win, 1);
-	}
-
-	if (dc->mode.pclk > 1000) {
-		struct tegra_dc_mode *mode = &dc->mode;
-
-		info->var.pixclock = KHZ2PICOS(mode->pclk / 1000);
-		info->var.left_margin = mode->h_back_porch;
-		info->var.right_margin = mode->h_front_porch;
-		info->var.upper_margin = mode->v_back_porch;
-		info->var.lower_margin = mode->v_front_porch;
-		info->var.hsync_len = mode->h_sync_width;
-		info->var.vsync_len = mode->v_sync_width;
 	}
 
 	return tegra_fb;
