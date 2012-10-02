@@ -180,13 +180,20 @@ NULL
 static const struct attribute_group asusec_smbus_group = {
 	.attrs = asusec_smbus_attributes,
 };
-
+/*
 static int asusec_kp_sci_table[]={0, KEY_SLEEP, KEY_WLAN, KEY_BLUETOOTH, 
 		ASUSEC_KEY_TOUCHPAD, KEY_BRIGHTNESSDOWN, KEY_BRIGHTNESSUP, ASUSEC_KEY_AUTOBRIGHT, 
 		KEY_CAMERA, -9, -10, -11, 
 		-12, -13, -14, -15, 
 		KEY_WWW, ASUSEC_KEY_SETTING, KEY_PREVIOUSSONG, KEY_PLAYPAUSE, 
 		KEY_NEXTSONG, KEY_MUTE, KEY_VOLUMEDOWN, KEY_VOLUMEUP};
+*/
+static int asusec_kp_sci_table[]={0, KEY_DELETE, KEY_F1, KEY_F2, 
+		KEY_F3, KEY_F4, KEY_F5, KEY_F6, 
+		KEY_F7, -9, -10, -11, 
+		-12, -13, -14, -15, 
+		KEY_F8, KEY_F9, KEY_F10, KEY_F11, 
+		KEY_F12, KEY_SCROLLLOCK, KEY_PAUSE, KEY_INSERT};
 
 static void asusec_dockram_init(struct i2c_client *client){
 	dockram_client.adapter = client->adapter;
