@@ -427,7 +427,7 @@ static void __init tf101_uart_init(void)
 	{					\
 		.code = _id,			\
 		.gpio = TEGRA_GPIO_##_gpio,	\
-		.active_low = 0,		\
+		.active_low = 1,		\
 		.desc = #_id,			\
 		.type = EV_SW,			\
 		.wakeup = _iswake,		\
