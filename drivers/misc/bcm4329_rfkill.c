@@ -49,11 +49,15 @@ static int bcm4329_bt_rfkill_set_power(void *data, bool blocked)
 			gpio_direction_output(bcm4329_rfkill->gpio_shutdown, 0);
 		if (bcm4329_rfkill->gpio_reset)
 			gpio_direction_output(bcm4329_rfkill->gpio_reset, 0);
+		/**
 		if (bcm4329_rfkill->bt_32k_clk)
 			clk_disable(bcm4329_rfkill->bt_32k_clk);
+		**/
 	} else {
+		/**
 		if (bcm4329_rfkill->bt_32k_clk)
 			clk_enable(bcm4329_rfkill->bt_32k_clk);
+		**/
 		if (bcm4329_rfkill->gpio_shutdown)
 		{
 			gpio_direction_output(bcm4329_rfkill->gpio_shutdown, 0);
@@ -89,12 +93,14 @@ static int bcm4329_rfkill_probe(struct platform_device *pdev)
 	if (!bcm4329_rfkill)
 		return -ENOMEM;
 
+	/**
 	bcm4329_rfkill->bt_32k_clk = clk_get(&pdev->dev, "bcm4329_32k_clk");
 	if (IS_ERR(bcm4329_rfkill->bt_32k_clk)) {
 		pr_warn("%s: can't find bcm4329_32k_clk.\
 				assuming 32k clock to chip\n", __func__);
 		bcm4329_rfkill->bt_32k_clk = NULL;
 	}
+	**/
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_IO,
 						"bcm4329_nreset_gpio");
@@ -123,9 +129,10 @@ static int bcm4329_rfkill_probe(struct platform_device *pdev)
 	/* make sure at-least one of the GPIO is defined */
 	if (!bcm4329_rfkill->gpio_reset && !bcm4329_rfkill->gpio_shutdown)
 		goto free_bcm_res;
-
+	/**
 	if (bcm4329_rfkill->bt_32k_clk && enable)
 		clk_enable(bcm4329_rfkill->bt_32k_clk);
+	**/
 	if (bcm4329_rfkill->gpio_shutdown)
 		gpio_direction_output(bcm4329_rfkill->gpio_shutdown, enable);
 	if (bcm4329_rfkill->gpio_reset)
@@ -155,10 +162,12 @@ free_bcm_res:
 		gpio_free(bcm4329_rfkill->gpio_shutdown);
 	if (bcm4329_rfkill->gpio_reset)
 		gpio_free(bcm4329_rfkill->gpio_reset);
+	/**
 	if (bcm4329_rfkill->bt_32k_clk && enable)
 		clk_disable(bcm4329_rfkill->bt_32k_clk);
 	if (bcm4329_rfkill->bt_32k_clk)
 		clk_put(bcm4329_rfkill->bt_32k_clk);
+	**/
 	kfree(bcm4329_rfkill);
 	return -ENODEV;
 }
@@ -166,9 +175,10 @@ free_bcm_res:
 static int bcm4329_rfkill_remove(struct platform_device *pdev)
 {
 	struct rfkill *bt_rfkill = platform_get_drvdata(pdev);
-
+	/**
 	if (bcm4329_rfkill->bt_32k_clk)
 		clk_put(bcm4329_rfkill->bt_32k_clk);
+	**/
 	rfkill_unregister(bt_rfkill);
 	rfkill_destroy(bt_rfkill);
 	if (bcm4329_rfkill->gpio_shutdown)
