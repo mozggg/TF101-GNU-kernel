@@ -51,9 +51,20 @@ static struct wifi_platform_data tf101_wifi_control = {
 	.set_carddetect = tf101_wifi_set_carddetect,
 };
 
+static struct resource wifi_resource[] = {
+	[0] = {
+		.name  = "bcm4329_wlan_irq",
+		.start = TEGRA_GPIO_TO_IRQ(TEGRA_GPIO_PS0),
+		.end   = TEGRA_GPIO_TO_IRQ(TEGRA_GPIO_PS0),
+		.flags = IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL | IORESOURCE_IRQ_SHAREABLE,
+	},
+};
+
 static struct platform_device tf101_wifi_device = {
 	.name		= "bcm4329_wlan",
 	.id		= 1,
+	.num_resources  = 1,
+	.resource	= wifi_resource,
 	.dev		= {
 		.platform_data = &tf101_wifi_control,
 	},
