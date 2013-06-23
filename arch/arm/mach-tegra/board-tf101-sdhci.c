@@ -36,6 +36,8 @@
 #define TF101_WLAN_PWR	TEGRA_GPIO_PK5
 #endif
 #define TF101_WLAN_RST	TEGRA_GPIO_PK6
+#define TF101_WLAN_WOW	TEGRA_GPIO_PS0
+#define TF101_SDIO_WOW	TEGRA_GPIO_PY6
 
 static void (*wifi_status_cb)(int card_present, void *dev_id);
 static void *wifi_status_cb_devid;
@@ -91,6 +93,7 @@ static struct tegra_sdhci_platform_data tegra_sdhci_platform_data1 = {
 		.embedded_sdio = &embedded_sdio_data1,
 		.built_in = 0,
 	},
+	.wow_gpio = TF101_SDIO_WOW,
 	.cd_gpio = -1,
 	.wp_gpio = -1,
 	.power_gpio = -1,
@@ -98,12 +101,14 @@ static struct tegra_sdhci_platform_data tegra_sdhci_platform_data1 = {
 };
 
 static struct tegra_sdhci_platform_data tegra_sdhci_platform_data3 = {
+	.wow_gpio = -1,
 	.cd_gpio = TEGRA_GPIO_PI5,
 	.wp_gpio = TEGRA_GPIO_PH1,
 	.power_gpio = TEGRA_GPIO_PT3,
 };
 
 static struct tegra_sdhci_platform_data tegra_sdhci_platform_data4 = {
+	.wow_gpio = -1,
 	.cd_gpio = -1,
 	.wp_gpio = -1,
 	.power_gpio = TEGRA_GPIO_PI6,
@@ -159,12 +164,15 @@ static int __init tf101_wifi_init(void)
 {
 	//gpio_request(TF101_WLAN_PWR, "wlan_power");
 	gpio_request(TF101_WLAN_RST, "wlan_rst");
+	gpio_request(TF101_WLAN_WOW, "bcmsdh_sdmmc");
 
 	//tegra_gpio_enable(TF101_WLAN_PWR);
 	tegra_gpio_enable(TF101_WLAN_RST);
+	tegra_gpio_enable(TF101_WLAN_WOW);
 
 	//gpio_direction_output(TF101_WLAN_PWR, 0);
 	gpio_direction_output(TF101_WLAN_RST, 0);
+	gpio_direction_input(TF101_WLAN_WOW);
 
 	platform_device_register(&tf101_wifi_device);
 
