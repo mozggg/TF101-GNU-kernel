@@ -38,10 +38,13 @@
 #define BOARD_E1208   0x0C08
 #define BOARD_PM305   0x0305
 #define BOARD_PM311   0x030B
+#define BOARD_PM315   0x030F
 #define BOARD_PMU_PM298   0x0262
 #define BOARD_PMU_PM299   0x0263
 
 /* SKU Information */
+#define BOARD_SKU_B11	0xb11
+
 #define SKU_DCDC_TPS62361_SUPPORT	0x1
 #define SKU_SLT_ULPI_SUPPORT		0x2
 #define SKU_T30S_SUPPORT		0x4
@@ -74,10 +77,15 @@
 #define BOARD_FAB_A03			0x3
 #define BOARD_FAB_A04			0x4
 #define BOARD_FAB_A05			0x5
+#define BOARD_FAB_A06			0x6
+#define BOARD_FAB_A07			0x7
 
 /* Display Board ID */
 #define BOARD_DISPLAY_PM313		0x030D
+#define BOARD_DISPLAY_E1213		0x0C0D
 #define BOARD_DISPLAY_E1247		0x0C2F
+#define BOARD_DISPLAY_E1253		0x0C35
+#define BOARD_DISPLAY_E1506		0x0F06
 
 /* External peripheral act as gpio */
 /* TPS6591x GPIOs */
@@ -155,6 +163,12 @@
 #define TEGRA_GPIO_SPKR_EN		CARDHU_GPIO_WM8903(2)
 #define TEGRA_GPIO_HP_DET		TEGRA_GPIO_PW2
 
+/* PM315 Realtek audio related GPIOs */
+#define TEGRA_GPIO_RTL_CDC_IRQ		TEGRA_GPIO_PX3
+#define TEGRA_GPIO_RTL_SPKR_EN		-1
+#define TEGRA_GPIO_RTL_HP_DET		TEGRA_GPIO_PW2
+#define TEGRA_GPIO_RTL_INT_MIC_EN	TEGRA_GPIO_PK3
+
 /* CAMERA RELATED GPIOs on CARDHU */
 #define OV5650_RESETN_GPIO			TEGRA_GPIO_PBB0
 #define CAM1_POWER_DWN_GPIO			TEGRA_GPIO_PBB5
@@ -213,7 +227,8 @@ int cardhu_pm298_gpio_switch_regulator_init(void);
 int cardhu_pm298_regulator_init(void);
 int cardhu_pm299_gpio_switch_regulator_init(void);
 int cardhu_pm299_regulator_init(void);
-void __init cardhu_tsensor_init(void);
+
+extern struct tegra_uart_platform_data cardhu_irda_pdata;
 
 #define MPU_TYPE_MPU3050	1
 #define MPU_TYPE_MPU6050	2
@@ -223,7 +238,7 @@ void __init cardhu_tsensor_init(void);
 #define MPU_GYRO_BUS_NUM	2
 #define MPU_GYRO_ORIENTATION	{ 0, -1, 0, -1, 0, 0, 0, 0, -1 }
 #define MPU_ACCEL_NAME		"kxtf9"
-#define MPU_ACCEL_IRQ_GPIO	TEGRA_GPIO_PL1
+#define MPU_ACCEL_IRQ_GPIO	0 /* DISABLE ACCELIRQ:  TEGRA_GPIO_PL1 */
 #define MPU_ACCEL_ADDR		0x0F
 #define MPU_ACCEL_BUS_NUM	2
 #define MPU_ACCEL_ORIENTATION	{ 0, -1, 0, -1, 0, 0, 0, 0, -1 }

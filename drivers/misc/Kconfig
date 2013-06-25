@@ -568,6 +568,19 @@ config FM34_VOICE_PROCESSOR
 	---help---
 	Support for the fortemedia FM34 voice processor.
 
+config THERM_EST
+	bool "Thermal estimator driver"
+	default n
+	---help---
+	Thermal driver which estimates temperature based of other sensors.
+
+config TEGRA_THROUGHPUT
+	bool "Device node to set throughput target"
+	depends on TEGRA_DC && TEGRA_DC_EXTENSIONS
+	default y
+	---help---
+	Dev node /dev/tegra-throughput used to set a throughput target.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -577,5 +590,6 @@ source "drivers/misc/lis3lv02d/Kconfig"
 source "drivers/misc/carma/Kconfig"
 source "drivers/misc/inv_mpu/Kconfig"
 source "drivers/misc/tegra-baseband/Kconfig"
+source "drivers/misc/tegra-cec/Kconfig"
 
 endif # MISC_DEVICES

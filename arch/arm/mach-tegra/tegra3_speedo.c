@@ -1,7 +1,7 @@
 /*
  * arch/arm/mach-tegra/tegra3_speedo.c
  *
- * Copyright (c) 2011, NVIDIA Corporation.
+ * Copyright (c) 2011-2012, NVIDIA Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,8 @@
 #include <linux/err.h>
 #include <mach/iomap.h>
 #include <mach/tegra_fuse.h>
+#include <linux/module.h>
+#include <linux/moduleparam.h>
 
 #include "fuse.h"
 
@@ -56,30 +58,30 @@ static const u32 core_process_speedos[][CORE_PROCESS_CORNERS_NUM] = {
 	{180}, /* [0]: soc_speedo_id 0: any A01 */
 
 /* T30 family */
-	{180}, /* [1]: soc_speedo_id 1: AP30 */
-	{204}, /* [2]: soc_speedo_id 2: T30  */
-	{192}, /* [3]: soc_speedo_id 2: T30S */
+	{170}, /* [1]: soc_speedo_id 1: AP30 */
+	{195}, /* [2]: soc_speedo_id 2: T30  */
+	{180}, /* [3]: soc_speedo_id 2: T30S */
 
 /* Characterization SKUs */
 	{168}, /* [4]: soc_speedo_id 1: AP30 char */
 	{192}, /* [5]: soc_speedo_id 2: T30  char */
-	{184}, /* [6]: soc_speedo_id 2: T30S char */
+	{180}, /* [6]: soc_speedo_id 2: T30S char */
 
 /* T33 family */
-	{180}, /* [7]: soc_speedo_id = 1 - AP33 */
-	{208}, /* [8]: soc_speedo_id = 2 - T33  */
-	{192}, /* [9]: soc_speedo_id = 2 - T33S */
+	{170}, /* [7]: soc_speedo_id = 1 - AP33 */
+	{195}, /* [8]: soc_speedo_id = 2 - T33  */
+	{180}, /* [9]: soc_speedo_id = 2 - T33S/AP37 */
 
 /* T30 'L' family */
-	{192}, /* [10]: soc_speedo_id 1: T30L */
-	{192}, /* [11]: soc_speedo_id 1: T30SL */
+	{180}, /* [10]: soc_speedo_id 1: T30L */
+	{180}, /* [11]: soc_speedo_id 1: T30SL */
 
 /* T30 Automotives */
 	{185}, /* [12]: soc_speedo_id = 3 - Automotives */
 	{185}, /* [13]: soc_speedo_id = 3 - Automotives */
 
 /* T37 Family*/
-	{220}, /* [14]: soc_speedo_id 2: T37 */
+	{210}, /* [14]: soc_speedo_id 2: T37 */
 };
 
 /* Maximum speedo levels for each CPU process corner */
@@ -88,9 +90,9 @@ static const u32 cpu_process_speedos[][CPU_PROCESS_CORNERS_NUM] = {
 	{306, 338, 360, 376, UINT_MAX}, /* [0]: cpu_speedo_id 0: any A01 */
 
 /* T30 family */
-	{304, 336, 359, 375, UINT_MAX}, /* [1]: cpu_speedo_id 1: AP30 */
-	{336, 336, 359, 375, UINT_MAX}, /* [2]: cpu_speedo_id 2: T30  */
-	{336, 336, 359, 375, UINT_MAX}, /* [3]: cpu_speedo_id 3: T30S */
+	{295, 336, 358, 375, UINT_MAX}, /* [1]: cpu_speedo_id 1: AP30 */
+	{325, 325, 358, 375, UINT_MAX}, /* [2]: cpu_speedo_id 2: T30  */
+	{325, 325, 358, 375, UINT_MAX}, /* [3]: cpu_speedo_id 3: T30S */
 
 /* Characterization SKUs */
 	{292, 324, 348, 364, UINT_MAX}, /* [4]: cpu_speedo_id 1: AP30char */
@@ -98,24 +100,23 @@ static const u32 cpu_process_speedos[][CPU_PROCESS_CORNERS_NUM] = {
 	{324, 324, 348, 364, UINT_MAX}, /* [6]: cpu_speedo_id 3: T30Schar */
 
 /* T33 family */
-	{305, 337, 359, 376, UINT_MAX}, /* [7]: cpu_speedo_id = 4 - AP33 */
-	{368, 368, 368, 368, 392, UINT_MAX}, /* [8]: cpu_speedo_id = 5 - T33  */
-	{376, 376, 376, 376, 392, UINT_MAX}, /* [9]: cpu_speedo_id = 6 - T33S */
+	{295, 336, 358, 375, UINT_MAX},      /* [7]: cpu_speedo_id: 4: AP33 */
+	{358, 358, 358, 358, 397, UINT_MAX}, /* [8]: cpu_speedo_id: 5: T33  */
+	{364, 364, 364, 364, 397, UINT_MAX}, /* [9]: cpu_speedo_id: 6/12: T33S/AP37 */
 
 /* T30 'L' family */
-	{305, 337, 359, 376, 392, UINT_MAX}, /* [10]: cpu_speedo_id 7: T30L  */
-	{305, 337, 359, 376, 392, UINT_MAX}, /* [11]: cpu_speedo_id 8: T30SL */
+	{295, 336, 358, 375, 391, UINT_MAX}, /* [10]: cpu_speedo_id 7: T30L  */
+	{295, 336, 358, 375, 391, UINT_MAX}, /* [11]: cpu_speedo_id 8: T30SL */
 
 /* T30 Automotives */
 	/* threshold_index 12: cpu_speedo_id 9 & 10
-	 * 0,1,2 values correspond to speedo_id  9
-	 * 3,4,5 values correspond to speedo_id 10
-	 */
+	 * 0,1,2 values correspond to speedo_id  9/14
+	 * 3,4,5 values correspond to speedo_id 10/15*/
 	{300, 311, 360, 371, 381, 415, 431},
-	{300, 311, 410, 431, UINT_MAX}, /* threshold_index 13: cpu_speedo_id = 11 */
+	{300, 311, 410, 431, UINT_MAX}, /* [13]: cpu_speedo_id 11: T30 auto */
 
 /* T37 family */
-	{368, 368, 368, 368, 392, UINT_MAX}, /* [14]: cpu_speedo_id = 13 - T37  */
+	{358, 358, 358, 358, 397, UINT_MAX}, /* [14]: cpu_speedo_id 13: T37 */
 };
 
 /*
@@ -129,6 +130,11 @@ static int core_process_id;
 static int cpu_speedo_id;
 static int soc_speedo_id;
 static int package_id;
+/*
+ * Only AP37 supports App Profile
+ * This informs user space of support without exposing cpu id's
+ */
+static int enable_app_profiles;
 
 static void fuse_speedo_calib(u32 *speedo_g, u32 *speedo_lp)
 {
@@ -268,6 +274,7 @@ static void rev_sku_to_speedo_ids(int rev, int sku)
 				cpu_speedo_id = 12;
 				soc_speedo_id = 2;
 				threshold_index = 9;
+				enable_app_profiles = 1;
 				break;
 			default:
 				pr_err("Tegra3 Rev-A02: Reserved pkg: %d\n",
@@ -346,6 +353,9 @@ void tegra_init_speedo_data(void)
 {
 	u32 cpu_speedo_val, core_speedo_val;
 	int iv;
+	int fuse_sku = tegra_sku_id();
+	int sku_override = tegra_get_sku_override();
+	int new_sku = fuse_sku;
 
 	/* Package info: 4 bits - 0,3:reserved 1:MID 2:DSC */
 	package_id = tegra_fuse_readl(FUSE_PACKAGE_INFO) & 0x0F;
@@ -354,7 +364,66 @@ void tegra_init_speedo_data(void)
 	BUG_ON(ARRAY_SIZE(cpu_process_speedos) !=
 	       ARRAY_SIZE(core_process_speedos));
 
-	rev_sku_to_speedo_ids(tegra_get_revision(), tegra_sku_id());
+	/* SKU Overrides
+	* T33	=> T30, T30L
+	* T33S	=> T30S, T30SL
+	* T30	=> T30L
+	* T30S	=> T30SL
+	* AP33	=> AP30
+	*/
+	switch (sku_override) {
+	case 1:
+		/* Base sku override */
+		if (fuse_sku == 0x80) {
+			if (package_id == 1) {
+				/* T33 to T30 */
+				pr_info("%s: SKU OR: T33->T30\n", __func__);
+				new_sku = 0x81;
+			} else if (package_id == 2) {
+				/* T33S->T30S */
+				pr_info("%s: SKU OR: T33S->T30S\n", __func__);
+				new_sku = 0x83;
+			}
+		} else if (fuse_sku == 0x81) {
+			if (package_id == 2) {
+				/* AP33->AP30 */
+				pr_info("%s: SKU OR: AP33->AP30\n", __func__);
+				new_sku = 0x87;
+			}
+		}
+		break;
+	case 2:
+		/* L sku override */
+		if (fuse_sku == 0x80) {
+			if (package_id == 1) {
+				/* T33->T30L */
+				pr_info("%s: SKU OR: T33->T30L\n", __func__);
+				new_sku = 0x83;
+			} else if (package_id == 2) {
+				/* T33S->T33SL */
+				pr_info("%s: SKU OR: T33S->T30SL\n", __func__);
+				new_sku = 0x8f;
+			}
+		} else if (fuse_sku == 0x81) {
+			if (package_id == 1) {
+				pr_info("%s: SKU OR: T30->T30L\n", __func__);
+				/* T30->T30L */
+				new_sku = 0x83;
+			}
+		} else if (fuse_sku == 0x83) {
+			if (package_id == 2) {
+				pr_info("%s: SKU OR: T30S->T30SL\n", __func__);
+				/* T30S to T30SL */
+				new_sku = 0x8f;
+			}
+		}
+		break;
+	default:
+		/* no override */
+		break;
+	}
+
+	rev_sku_to_speedo_ids(tegra_get_revision(), new_sku);
 	BUG_ON(threshold_index >= ARRAY_SIZE(cpu_process_speedos));
 
 	fuse_speedo_calib(&cpu_speedo_val, &core_speedo_val);
@@ -401,10 +470,31 @@ void tegra_init_speedo_data(void)
 		soc_speedo_id = 1;
 	}
 	if (threshold_index == 12 && cpu_process_id != INVALID_PROCESS_ID) {
-		if (cpu_process_id <= 2)
-			cpu_speedo_id = 9;
-		else if (cpu_process_id >= 3 && cpu_process_id < 6)
-			cpu_speedo_id = 10;
+		if (cpu_process_id <= 2) {
+			switch(fuse_sku) {
+			case 0xb0:
+			case 0xb1:
+				cpu_speedo_id = 9;
+				break;
+			case 0x90:
+			case 0x91:
+				cpu_speedo_id = 14;
+			default:
+				break;
+			}
+		} else if (cpu_process_id >= 3 && cpu_process_id < 6) {
+			switch(fuse_sku) {
+			case 0xb0:
+			case 0xb1:
+				cpu_speedo_id = 10;
+				break;
+			case 0x90:
+			case 0x91:
+				cpu_speedo_id = 15;
+			default:
+				break;
+			}
+		}
 	}
 	pr_info("Tegra3: CPU Speedo ID %d, Soc Speedo ID %d",
 		 cpu_speedo_id, soc_speedo_id);
@@ -449,8 +539,8 @@ int tegra_package_id(void)
  * latter is resolved by the dvfs code)
  */
 static const int cpu_speedo_nominal_millivolts[] =
-/* speedo_id 0,    1,    2,    3,    4,    5,    6,    7,    8,   9,  10,  11,   12,   13 */
-	{ 1125, 1150, 1150, 1150, 1237, 1237, 1237, 1150, 1150, 912, 850, 850, 1237, 1237};
+/* speedo_id 0,    1,    2,    3,    4,    5,    6,    7,    8,   9,  10,  11,   12,    13,  14,  15 */
+	{ 1125, 1150, 1150, 1150, 1237, 1237, 1237, 1150, 1150, 1007, 916, 850, 1237, 1237, 950, 900};
 
 int tegra_cpu_speedo_mv(void)
 {
@@ -478,3 +568,15 @@ int tegra_core_speedo_mv(void)
 		BUG();
 	}
 }
+
+static int get_enable_app_profiles(char *val, const struct kernel_param *kp)
+{
+	return param_get_uint(val, kp);
+}
+
+static struct kernel_param_ops tegra_profiles_ops = {
+	.get = get_enable_app_profiles,
+};
+
+module_param_cb(tegra_enable_app_profiles,
+	&tegra_profiles_ops, &enable_app_profiles, 0444);

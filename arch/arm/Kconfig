@@ -1,3 +1,16 @@
+# Copyright (c) 2012, NVIDIA CORPORATION.  All rights reserved.
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms and conditions of the GNU General Public License,
+# version 2, as published by the Free Software Foundation.
+#
+# This program is distributed in the hope it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 config ARM
 	bool
 	default y
@@ -217,6 +230,10 @@ config ARM_PATCH_PHYS_VIRT_16BIT
 	  This option extends the physical to virtual translation patching
 	  to allow physical memory down to a theoretical minimum of 64K
 	  boundaries.
+
+config GENERIC_BUG
+	def_bool y
+	depends on BUG
 
 source "init/Kconfig"
 
@@ -1155,6 +1172,14 @@ config ARM_ERRATA_460075
 	  ACTLR register. Note that setting specific bits in the ACTLR register
 	  may not be available in non-secure mode.
 
+config ARM_ERRATA_716044
+	bool "ARM errata: an uncacheable load multiple instruction can cause a deadlock"
+	depends on CPU_V7
+	help
+	 Under some rare circumstances, an uncacheable load multiple
+	 instruction (LDRD, LDM, VLDM, VLD1, VLD2, VLD3, VLD4) can cause
+	 a processor deadlock.
+
 config ARM_ERRATA_742230
 	bool "ARM errata: DMB operation may be faulty"
 	depends on CPU_V7 && SMP
@@ -1396,6 +1421,8 @@ config PCI_HOST_ITE8152
 
 source "drivers/pci/Kconfig"
 
+source "drivers/pci/pcie/Kconfig"
+
 source "drivers/pcmcia/Kconfig"
 
 endmenu
@@ -1478,6 +1505,49 @@ config PAGE_OFFSET
 	default 0x40000000 if VMSPLIT_1G
 	default 0x80000000 if VMSPLIT_2G
 	default 0xC0000000
+
+choice
+	prompt "Task size"
+	depends on MMU
+	default TASK_SIZE_1G_LESS_16M if VMSPLIT_1G
+	default TASK_SIZE_2G_LESS_16M if VMSPLIT_2G
+	default TASK_SIZE_3G_LESS_16M
+
+config TASK_SIZE_1G_LESS_16M
+	bool "Task size is 1GiB less 16MiB"
+	depends on VMSPLIT_1G
+
+config TASK_SIZE_1G_LESS_24M
+	bool "Task size is 1GiB less 24MiB"
+	depends on VMSPLIT_1G
+
+config TASK_SIZE_2G_LESS_16M
+	bool "Task size is 2GiB less 16MiB"
+	depends on VMSPLIT_2G
+
+config TASK_SIZE_2G_LESS_24M
+	bool "Task size is 2GiB less 24MiB"
+	depends on VMSPLIT_2G
+
+config TASK_SIZE_3G_LESS_16M
+	bool "Task size is 3GiB less 16MiB"
+	depends on VMSPLIT_3G
+
+config TASK_SIZE_3G_LESS_24M
+	bool "Task size is 3GiB less 24MiB"
+	depends on VMSPLIT_3G
+
+endchoice
+
+config TASK_SIZE
+	hex
+	depends on MMU
+	default 0x3E800000 if TASK_SIZE_1G_LESS_24M
+	default 0x3F000000 if TASK_SIZE_1G_LESS_16M
+	default 0x7E800000 if TASK_SIZE_2G_LESS_24M
+	default 0x7F000000 if TASK_SIZE_2G_LESS_16M
+	default 0xBE800000 if TASK_SIZE_3G_LESS_24M
+	default 0xBF000000
 
 config NR_CPUS
 	int "Maximum number of CPUs (2-32)"
@@ -1644,6 +1714,14 @@ config HW_PERF_EVENTS
 	help
 	  Enable hardware performance counter support for perf events. If
 	  disabled, perf events will use software events only.
+
+config ARCH_HAS_SUSPEND_PAGETABLE
+	bool
+	help
+	  This option indicates the platform architecture installs its own
+	  1:1 pagetable during CPU suspend/resume codepaths. This means the
+	  patching of the pagetable as part of reenabling the MMU isn't
+	  needed in the ARM common CPU resume codepath. If in doubt, say N.
 
 source "mm/Kconfig"
 
@@ -1862,6 +1940,38 @@ config ZBOOT_ROM_SH_MOBILE_SDHI
 
 endchoice
 
+config ARM_APPENDED_DTB
+	bool "Use appended device tree blob to zImage (EXPERIMENTAL)"
+	depends on OF && !ZBOOT_ROM && EXPERIMENTAL
+	help
+	  With this option, the boot code will look for a device tree binary
+	  (DTB) appended to zImage
+	  (e.g. cat zImage <filename>.dtb > zImage_w_dtb).
+
+	  This is meant as a backward compatibility convenience for those
+	  systems with a bootloader that can't be upgraded to accommodate
+	  the documented boot protocol using a device tree.
+
+	  Beware that there is very little in terms of protection against
+	  this option being confused by leftover garbage in memory that might
+	  look like a DTB header after a reboot if no actual DTB is appended
+	  to zImage.  Do not leave this option active in a production kernel
+	  if you don't intend to always append a DTB.  Proper passing of the
+	  location into r2 of a bootloader provided DTB is always preferable
+	  to this option.
+
+config ARM_ATAG_DTB_COMPAT
+	bool "Supplement the appended DTB with traditional ATAG information"
+	depends on ARM_APPENDED_DTB
+	help
+	  Some old bootloaders can't be updated to a DTB capable one, yet
+	  they provide ATAGs with memory configuration, the ramdisk address,
+	  the kernel cmdline string, etc.  Such information is dynamically
+	  provided by the bootloader and can't always be stored in a static
+	  DTB.  To allow a device tree enabled kernel to be used with such
+	  bootloaders, this option allows zImage to extract the information
+	  from the ATAG list and store it at run time into the appended DTB.
+
 config CMDLINE
 	string "Default kernel command string"
 	default ""
@@ -2059,6 +2169,8 @@ config CPU_FREQ_S3C24XX_DEBUGFS
 endif
 
 source "drivers/cpuidle/Kconfig"
+
+source "drivers/cpuquiet/Kconfig"
 
 endmenu
 

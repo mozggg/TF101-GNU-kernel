@@ -1229,11 +1229,15 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	host->mrq = mrq;
 
 	/* If polling, assume that the card is always present. */
-	if (host->quirks & SDHCI_QUIRK_BROKEN_CARD_DETECTION)
-		present = true;
-	else
+	if (host->quirks & SDHCI_QUIRK_BROKEN_CARD_DETECTION) {
+		if (host->ops->get_cd)
+			present = host->ops->get_cd(host);
+		else
+			present = true;
+	} else {
 		present = sdhci_readl(host, SDHCI_PRESENT_STATE) &
 				SDHCI_CARD_PRESENT;
+	}
 
 	if (!present || host->flags & SDHCI_DEVICE_DEAD) {
 		host->mrq->cmd->error = -ENOMEDIUM;
@@ -1348,14 +1352,14 @@ static void sdhci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	if (host->version >= SDHCI_SPEC_300) {
 		u16 clk, ctrl_2;
-		unsigned int clock;
 
 		/* In case of UHS-I modes, set High Speed Enable */
-		if ((ios->timing == MMC_TIMING_UHS_SDR50) ||
+		if (((ios->timing == MMC_TIMING_UHS_SDR50) ||
 		    (ios->timing == MMC_TIMING_UHS_SDR104) ||
 		    (ios->timing == MMC_TIMING_UHS_DDR50) ||
 		    (ios->timing == MMC_TIMING_UHS_SDR25) ||
 		    (ios->timing == MMC_TIMING_UHS_SDR12))
+		    && !(host->quirks & SDHCI_QUIRK_NO_HISPD_BIT))
 			ctrl |= SDHCI_CTRL_HISPD;
 
 		ctrl_2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
@@ -1845,6 +1849,7 @@ static void sdhci_enable_preset_value(struct mmc_host *mmc, bool enable)
 int sdhci_enable(struct mmc_host *mmc)
 {
 	struct sdhci_host *host = mmc_priv(mmc);
+	u16 clk;
 
 	if (!mmc->card || mmc->card->type == MMC_TYPE_SDIO)
 		return 0;
@@ -1861,6 +1866,7 @@ int sdhci_enable(struct mmc_host *mmc)
 int sdhci_disable(struct mmc_host *mmc, int lazy)
 {
 	struct sdhci_host *host = mmc_priv(mmc);
+	u16 clk;
 
 	if (!mmc->card || mmc->card->type == MMC_TYPE_SDIO)
 		return 0;
@@ -2315,22 +2321,45 @@ out:
 int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state)
 {
 	int ret = 0;
+	bool has_tuning_timer;
 	struct mmc_host *mmc = host->mmc;
 
 	sdhci_disable_card_detection(host);
 
 	/* Disable tuning since we are suspending */
-	if (host->version >= SDHCI_SPEC_300 && host->tuning_count &&
-	    host->tuning_mode == SDHCI_TUNING_MODE_1) {
+	has_tuning_timer = host->version >= SDHCI_SPEC_300 &&
+		host->tuning_count && host->tuning_mode == SDHCI_TUNING_MODE_1;
+	if (has_tuning_timer) {
 		host->flags &= ~SDHCI_NEEDS_RETUNING;
 		mod_timer(&host->tuning_timer, jiffies +
 			host->tuning_count * HZ);
 	}
 
-	if (mmc->card && (mmc->card->type != MMC_TYPE_SDIO))
-		ret = mmc_suspend_host(host->mmc);
+	if (mmc->card) {
+		/*
+		 * If eMMC cards are put in sleep state, Vccq can be disabled
+		 * but Vcc would still be powered on. In resume, we only restore
+		 * the controller context. So, set MMC_PM_KEEP_POWER flag.
+		 */
+		if (mmc_card_can_sleep(mmc) &&
+			!(mmc->caps & MMC_CAP2_NO_SLEEP_CMD))
+			mmc->pm_flags = MMC_PM_KEEP_POWER;
 
-	if (host->flags & MMC_PM_KEEP_POWER)
+		ret = mmc_suspend_host(host->mmc);
+		if (ret) {
+			if (has_tuning_timer) {
+				host->flags |= SDHCI_NEEDS_RETUNING;
+				mod_timer(&host->tuning_timer, jiffies +
+						host->tuning_count * HZ);
+			}
+
+			sdhci_enable_card_detection(host);
+
+			return ret;
+		}
+	}
+
+	if (mmc->pm_flags & MMC_PM_KEEP_POWER)
 		host->card_int_set = sdhci_readl(host, SDHCI_INT_ENABLE) &
 			SDHCI_INT_CARD_INT;
 
@@ -2371,15 +2400,12 @@ int sdhci_resume_host(struct sdhci_host *host)
 	mmiowb();
 
 	if (mmc->card) {
-		if (mmc->card->type != MMC_TYPE_SDIO) {
-			ret = mmc_resume_host(host->mmc);
-		} else {
-			/* Enable card interrupt as it is overwritten in sdhci_init */
-			if ((mmc->caps & MMC_CAP_SDIO_IRQ) &&
-				(mmc->pm_flags & MMC_PM_KEEP_POWER))
-					if (host->card_int_set)
-						mmc->ops->enable_sdio_irq(mmc, true);
-		}
+		ret = mmc_resume_host(host->mmc);
+		/* Enable card interrupt as it is overwritten in sdhci_init */
+		if ((mmc->caps & MMC_CAP_SDIO_IRQ) &&
+			(mmc->pm_flags & MMC_PM_KEEP_POWER))
+				if (host->card_int_set)
+					mmc->ops->enable_sdio_irq(mmc, true);
 	}
 
 	sdhci_enable_card_detection(host);
@@ -2629,7 +2655,7 @@ int sdhci_add_host(struct sdhci_host *host)
 		mmc->caps |= MMC_CAP_SD_HIGHSPEED | MMC_CAP_MMC_HIGHSPEED;
 
 	if ((host->quirks & SDHCI_QUIRK_BROKEN_CARD_DETECTION) &&
-	    mmc_card_is_removable(mmc))
+	    mmc_card_is_removable(mmc) && !(host->ops->get_cd))
 		mmc->caps |= MMC_CAP_NEEDS_POLL;
 
 	/* UHS-I mode(s) supported by the host controller. */

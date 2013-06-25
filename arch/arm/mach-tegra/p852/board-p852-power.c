@@ -161,16 +161,6 @@ static struct i2c_board_info __initdata p852_regulators[] = {
 	},
 };
 
-static struct tegra_suspend_platform_data p852_suspend_data = {
-	.cpu_timer	= 2000,
-	.cpu_off_timer	= 0,
-	.suspend_mode	= TEGRA_SUSPEND_LP1,
-	.core_timer	= 0x7e7e,
-	.core_off_timer = 0,
-	.corereq_high	= false,
-	.sysclkreq_high	= true,
-};
-
 static void __init tps6586x_rtc_preinit(void)
 {
 	int i;
@@ -183,11 +173,12 @@ static void __init tps6586x_rtc_preinit(void)
 		system_rev == P852_SKU5_C01) {
 		for (i = 0; i < tps_platform.num_subdevs; ++i)
 			if (!strcmp(tps_platform.subdevs[i].name,
-				"tps6586x-rtc"))
+				"tps6586x-rtc")) {
 				rtc_pdata =
 					(struct tps6586x_rtc_platform_data *)
 					(tps_platform.subdevs[i].platform_data);
 				rtc_pdata->cl_sel = TPS6586X_RTC_CL_SEL_1_5PF;
+			}
 	}
 }
 
@@ -201,7 +192,6 @@ int __init p852_regulator_init(void)
 	pmc_ctrl = readl(pmc + PMC_CTRL);
 	writel(pmc_ctrl | PMC_CTRL_INTR_LOW, pmc + PMC_CTRL);
 	i2c_register_board_info(3, p852_regulators, 1);
-	tegra_init_suspend(&p852_suspend_data);
 
 	tps6586x_rtc_preinit();
 

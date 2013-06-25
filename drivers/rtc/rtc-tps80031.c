@@ -31,6 +31,7 @@
 #include <linux/platform_device.h>
 #include <linux/rtc.h>
 #include <linux/slab.h>
+#include <linux/gpio.h>
 
 #define RTC_CTRL		0x10
 #define RTC_STATUS		0x11
@@ -64,8 +65,25 @@ struct tps80031_rtc {
 	unsigned long		epoch_start;
 	int			irq;
 	struct rtc_device	*rtc;
-	bool			irq_en;
+	u8 			alarm_irq_enabled;
+	int			msecure_gpio;
 };
+
+static inline void tps80031_enable_rtc_write(struct device *dev)
+{
+	struct tps80031_rtc *rtc = dev_get_drvdata(dev);
+
+	if (rtc->msecure_gpio >= 0)
+		gpio_set_value(rtc->msecure_gpio, 1);
+}
+
+static inline void tps80031_disable_rtc_write(struct device *dev)
+{
+	struct tps80031_rtc *rtc = dev_get_drvdata(dev);
+
+	if (rtc->msecure_gpio >= 0)
+		gpio_set_value(rtc->msecure_gpio, 0);
+}
 
 static int tps80031_read_regs(struct device *dev, int reg, int len,
 	uint8_t *val)
@@ -93,13 +111,16 @@ static int tps80031_write_regs(struct device *dev, int reg, int len,
 	uint8_t *val)
 {
 	int ret;
+
+	tps80031_enable_rtc_write(dev);
 	ret = tps80031_writes(dev->parent, 1, reg, len, val);
 	if (ret < 0) {
+		tps80031_disable_rtc_write(dev);
 		dev_err(dev->parent, "failed writing reg: %d\n", reg);
 		WARN_ON(1);
 		return ret;
 	}
-
+	tps80031_disable_rtc_write(dev);
 	return 0;
 }
 
@@ -150,18 +171,24 @@ static int tps80031_rtc_read_time(struct device *dev, struct rtc_time *tm)
 static int tps80031_rtc_stop(struct device *dev)
 {
 	int err;
+
+	tps80031_enable_rtc_write(dev);
 	err = tps80031_clr_bits(dev->parent, 1, RTC_CTRL, STOP_RTC);
 	if (err < 0)
 		dev_err(dev->parent, "failed to stop RTC. err: %d\n", err);
+	tps80031_disable_rtc_write(dev);
 	return err;
 }
 
 static int tps80031_rtc_start(struct device *dev)
 {
 	int err;
+
+	tps80031_enable_rtc_write(dev);
 	err = tps80031_set_bits(dev->parent, 1, RTC_CTRL, STOP_RTC);
 	if (err < 0)
 		dev_err(dev->parent, "failed to start RTC. err: %d\n", err);
+	tps80031_disable_rtc_write(dev);
 	return err;
 }
 
@@ -214,11 +241,6 @@ static int tps80031_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 		return -EINVAL;
 	}
 
-	if (alrm->enabled && !rtc->irq_en)
-		rtc->irq_en = true;
-	else if (!alrm->enabled && rtc->irq_en)
-		rtc->irq_en = false;
-
 	buff[0] = alrm->time.tm_sec;
 	buff[1] = alrm->time.tm_min;
 	buff[2] = alrm->time.tm_hour;
@@ -264,24 +286,28 @@ static int tps80031_rtc_alarm_irq_enable(struct device *dev,
 		return -EIO;
 
 	if (enable) {
-		if (rtc->irq_en == true)
+		if (rtc->alarm_irq_enabled)
 			return 0;
 
+		tps80031_enable_rtc_write(dev);
 		err = tps80031_set_bits(p, 1, RTC_INT, ENABLE_ALARM_INT);
+		tps80031_disable_rtc_write(dev);
 		if (err < 0) {
 			dev_err(p, "failed to set ALRM int. err: %d\n", err);
 			return err;
-		}
-		rtc->irq_en = true;
+		} else
+			rtc->alarm_irq_enabled = 1;
 	} else {
-		if (rtc->irq_en == false)
+		if(!rtc->alarm_irq_enabled)
 			return 0;
+		tps80031_enable_rtc_write(dev);
 		err = tps80031_clr_bits(p, 1, RTC_INT, ENABLE_ALARM_INT);
+		tps80031_disable_rtc_write(dev);
 		if (err < 0) {
 			dev_err(p, "failed to clear ALRM int. err: %d\n", err);
 			return err;
-		}
-		rtc->irq_en = false;
+		} else
+			rtc->alarm_irq_enabled = 0;
 	}
 	return 0;
 }
@@ -308,8 +334,10 @@ static irqreturn_t tps80031_rtc_irq(int irq, void *data)
 		return -EBUSY;
 	}
 
+	tps80031_enable_rtc_write(dev);
 	err = tps80031_force_update(dev->parent, 1, RTC_STATUS,
 		ALARM_INT_STATUS, ALARM_INT_STATUS);
+	tps80031_disable_rtc_write(dev);
 	if (err) {
 		dev_err(dev->parent, "unable to set Alarm INT\n");
 		return -EBUSY;
@@ -321,12 +349,20 @@ static irqreturn_t tps80031_rtc_irq(int irq, void *data)
 
 static int __devinit tps80031_rtc_probe(struct platform_device *pdev)
 {
-	struct tps80031_rtc_platform_data *pdata = pdev->dev.platform_data;
+	struct tps80031_platform_data *tps80031_pdata;
+	struct tps80031_rtc_platform_data *pdata;
 	struct tps80031_rtc *rtc;
 	struct rtc_time tm;
 	int err;
 	u8 reg;
 
+	tps80031_pdata = dev_get_platdata(pdev->dev.parent);
+	if (!tps80031_pdata) {
+		dev_err(&pdev->dev, "no tps80031 platform_data specified\n");
+		return -EINVAL;
+	}
+
+	pdata = tps80031_pdata->rtc_pdata;
 	if (!pdata) {
 		dev_err(&pdev->dev, "no platform_data specified\n");
 		return -EINVAL;
@@ -340,8 +376,19 @@ static int __devinit tps80031_rtc_probe(struct platform_device *pdev)
 	if (pdata->irq < 0)
 		dev_err(&pdev->dev, "no IRQ specified, wakeup is disabled\n");
 
+	rtc->msecure_gpio = -1;
+	if (gpio_is_valid(pdata->msecure_gpio)) {
+		err = gpio_request(pdata->msecure_gpio, "tps80031 msecure");
+		if (err == 0) {
+			rtc->msecure_gpio = pdata->msecure_gpio;
+			gpio_direction_output(rtc->msecure_gpio, 0);
+		} else
+			dev_warn(&pdev->dev, "could not get msecure GPIO\n");
+	}
+
 	rtc->rtc = rtc_device_register(pdev->name, &pdev->dev,
 				       &tps80031_rtc_ops, THIS_MODULE);
+	dev_set_drvdata(&pdev->dev, rtc);
 
 	if (IS_ERR(rtc->rtc)) {
 		err = PTR_ERR(rtc->rtc);
@@ -365,7 +412,7 @@ static int __devinit tps80031_rtc_probe(struct platform_device *pdev)
 	/* If RTC have POR values, set time using platform data*/
 	tps80031_rtc_read_time(&pdev->dev, &tm);
 	if ((tm.tm_year == RTC_YEAR_OFFSET + RTC_POR_YEAR) &&
-		(tm.tm_mon == RTC_POR_MONTH) &&
+		(tm.tm_mon == (RTC_POR_MONTH - 1)) &&
 		(tm.tm_mday == RTC_POR_DAY)) {
 		if (pdata->time.tm_year < 2000 ||
 			pdata->time.tm_year > 2100) {
@@ -384,14 +431,17 @@ static int __devinit tps80031_rtc_probe(struct platform_device *pdev)
 		return -EBUSY;
 	}
 
+	tps80031_enable_rtc_write(&pdev->dev);
 	err = tps80031_set_bits(pdev->dev.parent, 1, RTC_INT, ENABLE_ALARM_INT);
+	tps80031_disable_rtc_write(&pdev->dev);
 	if (err) {
 		dev_err(&pdev->dev, "unable to program Interrupt Mask reg\n");
 		err = -EBUSY;
+		rtc->alarm_irq_enabled = 0;
 		goto fail;
-	}
+	} else
+		rtc->alarm_irq_enabled = 1;
 
-	dev_set_drvdata(&pdev->dev, rtc);
 	if (pdata && (pdata->irq >= 0)) {
 		rtc->irq = pdata->irq;
 		err = request_threaded_irq(pdata->irq, NULL, tps80031_rtc_irq,
@@ -427,7 +477,7 @@ static int __devexit tps80031_rtc_remove(struct platform_device *pdev)
 
 static struct platform_driver tps80031_rtc_driver = {
 	.driver	= {
-		.name	= "rtc_tps80031",
+		.name	= "tps80031-rtc",
 		.owner	= THIS_MODULE,
 	},
 	.probe	= tps80031_rtc_probe,

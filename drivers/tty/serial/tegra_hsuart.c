@@ -3,7 +3,7 @@
  *
  * High-speed serial driver for NVIDIA Tegra SoCs
  *
- * Copyright (C) 2009-2011 NVIDIA Corporation
+ * Copyright (C) 2009-2012 NVIDIA Corporation
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -43,6 +43,8 @@
 #include <mach/dma.h>
 #include <mach/clk.h>
 
+#define TEGRA_UART_TYPE "TEGRA_UART"
+
 #define TX_EMPTY_STATUS (UART_LSR_TEMT | UART_LSR_THRE)
 
 #define BYTES_TO_ALIGN(x) ((unsigned long)(ALIGN((x), sizeof(u32))) - \
@@ -57,6 +59,8 @@
 #define UART_MCR_CTS_EN		0x20
 #define UART_LSR_ANY		(UART_LSR_OE | UART_LSR_BI | \
 				UART_LSR_PE | UART_LSR_FE)
+#define TEGRA_UART_IRDA_CSR	0x8
+#define TEGRA_UART_SIR_ENABLED	0x80
 
 #define TX_FORCE_PIO 0
 #define RX_FORCE_PIO 0
@@ -90,6 +94,12 @@ const int dma_req_sel[] = {
 struct tegra_uart_port {
 	struct uart_port	uport;
 	char			port_name[32];
+	bool			is_irda;
+	int			(*irda_init)(void);
+	void			(*irda_start)(void);
+	int			(*irda_mode_switch)(int);
+	void			(*irda_shutdown)(void);
+	void			(*irda_remove)(void);
 
 	/* Module info */
 	unsigned long		size;
@@ -128,6 +138,8 @@ static void tegra_set_baudrate(struct tegra_uart_port *t, unsigned int baud);
 static void do_handle_rx_pio(struct tegra_uart_port *t);
 static void do_handle_rx_dma(struct tegra_uart_port *t);
 static void set_rts(struct tegra_uart_port *t, bool active);
+static void tegra_start_rx(struct uart_port *u);
+static void tegra_stop_rx(struct uart_port *u);
 
 static inline u8 uart_readb(struct tegra_uart_port *t, unsigned long reg)
 {
@@ -222,6 +234,8 @@ static void tegra_start_next_tx(struct tegra_uart_port *t)
 {
 	unsigned long tail;
 	unsigned long count;
+	unsigned long lsr;
+	struct uart_port *u = &t->uport;
 
 	struct circ_buf *xmit;
 
@@ -233,8 +247,22 @@ static void tegra_start_next_tx(struct tegra_uart_port *t)
 	dev_vdbg(t->uport.dev, "+%s %lu %d\n", __func__, count,
 		t->tx_in_progress);
 
-	if (count == 0)
+	if (count == 0) {
+		if (t->is_irda) {
+			do {
+				lsr = uart_readb(t, UART_LSR);
+				if (lsr & UART_LSR_TEMT)
+					break;
+			} while (1);
+			tegra_start_rx(u);
+		}
 		goto out;
+	}
+
+	if (t->is_irda) {
+		if (t->rx_in_progress)
+			tegra_stop_rx(u);
+	}
 
 	if (!t->use_tx_dma || count < TEGRA_UART_MIN_DMA)
 		tegra_start_pio_tx(t, count);
@@ -263,6 +291,8 @@ static void tegra_start_tx(struct uart_port *u)
 static int tegra_start_dma_rx(struct tegra_uart_port *t)
 {
 	wmb();
+	dma_sync_single_for_device(t->uport.dev, t->rx_dma_req.dest_addr,
+			t->rx_dma_req.size, DMA_TO_DEVICE);
 	if (tegra_dma_enqueue_req(t->rx_dma, &t->rx_dma_req)) {
 		dev_err(t->uport.dev, "Could not enqueue Rx DMA req\n");
 		return -EINVAL;
@@ -308,6 +338,8 @@ static void tegra_rx_dma_complete_callback(struct tegra_dma_req *req)
 		req->status);
 	if (req->bytes_transferred) {
 		t->uport.icount.rx += req->bytes_transferred;
+		dma_sync_single_for_cpu(t->uport.dev, req->dest_addr,
+				req->size, DMA_FROM_DEVICE);
 		copied = tty_insert_flip_string(tty,
 			((unsigned char *)(req->virt_addr)),
 			req->bytes_transferred);
@@ -317,6 +349,8 @@ static void tegra_rx_dma_complete_callback(struct tegra_dma_req *req)
 				"to tty layer Req %d and coped %d\n",
 				req->bytes_transferred, copied);
 		}
+		dma_sync_single_for_device(t->uport.dev, req->dest_addr,
+				req->size, DMA_TO_DEVICE);
 	}
 
 	do_handle_rx_pio(t);
@@ -591,6 +625,42 @@ static irqreturn_t tegra_uart_isr(int irq, void *data)
 	}
 }
 
+static void tegra_start_rx(struct uart_port *u)
+{
+	struct tegra_uart_port *t;
+	unsigned char ier;
+
+	t = container_of(u, struct tegra_uart_port, uport);
+
+	if (t->rts_active)
+		set_rts(t, true);
+
+	if (!t->rx_in_progress) {
+		wait_sym_time(t, 1); /* wait a character interval */
+
+		/* Clear the received Bytes from FIFO */
+		tegra_fifo_reset(t, UART_FCR_CLEAR_RCVR);
+		uart_readb(t, UART_LSR);
+		ier = 0;
+		ier |= (UART_IER_RLSI | UART_IER_RTOIE);
+		if (t->use_rx_dma)
+			ier |= UART_IER_EORD;
+		else
+			ier |= UART_IER_RDI;
+		t->ier_shadow |= ier;
+		uart_writeb(t, t->ier_shadow, UART_IER);
+
+		t->rx_in_progress = 1;
+
+		if (t->use_rx_dma && t->rx_dma)
+			tegra_dma_enqueue_req(t->rx_dma, &t->rx_dma_req);
+
+		tty_flip_buffer_push(u->state->port.tty);
+	}
+
+	return;
+}
+
 static void tegra_stop_rx(struct uart_port *u)
 {
 	struct tegra_uart_port *t;
@@ -697,6 +767,7 @@ static void tegra_uart_free_rx_dma(struct tegra_uart_port *t)
 static int tegra_uart_hw_init(struct tegra_uart_port *t)
 {
 	unsigned char ier;
+	unsigned char sir;
 
 	dev_vdbg(t->uport.dev, "+tegra_uart_hw_init\n");
 
@@ -792,6 +863,16 @@ static int tegra_uart_hw_init(struct tegra_uart_port *t)
 	t->ier_shadow = ier;
 	uart_writeb(t, ier, UART_IER);
 
+	/*
+	 * Tegra UART controller also support SIR PHY
+	 * Enabled IRDA will transmit each zero bit as a short IR pulse.
+	 */
+	if (t->is_irda) {
+		dev_vdbg(t->uport.dev, "SIR enabled\n");
+		sir = TEGRA_UART_SIR_ENABLED;
+		uart_writeb(t, sir, TEGRA_UART_IRDA_CSR);
+	}
+
 	t->uart_state = TEGRA_UART_OPENED;
 	dev_vdbg(t->uport.dev, "-tegra_uart_hw_init\n");
 	return 0;
@@ -886,8 +967,11 @@ static int tegra_startup(struct uart_port *u)
 	if (ret)
 		goto fail;
 
+	if (t->is_irda && t->irda_start)
+		t->irda_start();
+
 	pdata = u->dev->platform_data;
-	if (pdata->is_loopback)
+	if (pdata && pdata->is_loopback)
 		t->mcr_shadow |= UART_MCR_LOOP;
 
 	dev_dbg(u->dev, "Requesting IRQ %d\n", u->irq);
@@ -911,6 +995,9 @@ static void tegra_shutdown(struct uart_port *u)
 
 	t = container_of(u, struct tegra_uart_port, uport);
 	dev_vdbg(u->dev, "+tegra_shutdown\n");
+
+	if (t->is_irda && t->irda_shutdown)
+		t->irda_shutdown();
 
 	tegra_uart_hw_deinit(t);
 
@@ -1255,6 +1342,12 @@ static void tegra_set_termios(struct uart_port *u, struct ktermios *termios,
 	if (t->rts_active)
 		set_rts(t, false);
 
+	/* Clear all interrupts as configuration is going to be change */
+	uart_writeb(t, t->ier_shadow | UART_IER_RDI, UART_IER);
+	uart_readb(t, UART_IER);
+	uart_writeb(t, 0, UART_IER);
+	uart_readb(t, UART_IER);
+
 	/* Parity */
 	lcr = t->lcr_shadow;
 	lcr &= ~UART_LCR_PARITY;
@@ -1327,6 +1420,13 @@ static void tegra_set_termios(struct uart_port *u, struct ktermios *termios,
 	/* update the port timeout based on new settings */
 	uart_update_timeout(u, termios->c_cflag, baud);
 
+	/* Make sure all write has completed */
+	uart_readb(t, UART_IER);
+
+	/* Reenable interrupt */
+	uart_writeb(t, t->ier_shadow, UART_IER);
+	uart_readb(t, UART_IER);
+
 	spin_unlock_irqrestore(&u->lock, flags);
 	dev_vdbg(t->uport.dev, "-tegra_set_termios\n");
 	return;
@@ -1362,7 +1462,7 @@ static void tegra_pm(struct uart_port *u, unsigned int state,
 
 static const char *tegra_type(struct uart_port *u)
 {
-	return 0;
+	return TEGRA_UART_TYPE;
 }
 
 static struct uart_ops tegra_uart_ops = {
@@ -1397,6 +1497,7 @@ static int __init tegra_uart_probe(struct platform_device *pdev)
 {
 	struct tegra_uart_port *t;
 	struct uart_port *u;
+	struct tegra_uart_platform_data *pdata;
 	struct resource *resource;
 	int ret;
 	char name[64];
@@ -1415,8 +1516,22 @@ static int __init tegra_uart_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, u);
 	u->line = pdev->id;
 	u->ops = &tegra_uart_ops;
-	u->type = ~PORT_UNKNOWN;
+	u->type = PORT_TEGRA;
 	u->fifosize = 32;
+
+	pdata = u->dev->platform_data;
+	if (pdata && pdata->is_irda) {
+		dev_info(&pdev->dev, "Initialized UART %d as SIR PHY\n",
+								u->line);
+		t->is_irda = pdata->is_irda;
+		t->irda_init = pdata->irda_init;
+		t->irda_start = pdata->irda_start;
+		t->irda_mode_switch = pdata->irda_mode_switch;
+		t->irda_shutdown = pdata->irda_shutdown;
+		t->irda_remove = pdata->irda_remove;
+		if (t->irda_init)
+			t->irda_init();
+	}
 
 	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (unlikely(!resource)) {
@@ -1430,6 +1545,7 @@ static int __init tegra_uart_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto fail;
 	}
+	u->iotype = UPIO_MEM32;
 
 	u->irq = platform_get_irq(pdev, 0);
 	if (unlikely(u->irq < 0)) {
@@ -1486,6 +1602,9 @@ static int __devexit tegra_uart_remove(struct platform_device *pdev)
 
 	if (pdev->id < 0 || pdev->id > tegra_uart_driver.nr)
 		pr_err("Invalid Uart instance (%d)\n", pdev->id);
+
+	if (t->is_irda && t->irda_remove)
+		t->irda_remove();
 
 	u = &t->uport;
 	uart_remove_one_port(&tegra_uart_driver, u);
@@ -1629,7 +1748,7 @@ int tegra_uart_is_tx_empty(struct uart_port *uport)
 	return tegra_tx_empty(uport);
 }
 
-static struct platform_driver tegra_uart_platform_driver = {
+static struct platform_driver tegra_uart_platform_driver __refdata= {
 	.probe		= tegra_uart_probe,
 	.remove		= __devexit_p(tegra_uart_remove),
 	.suspend	= tegra_uart_suspend,

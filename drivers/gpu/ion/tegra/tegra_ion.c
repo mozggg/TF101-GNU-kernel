@@ -31,7 +31,7 @@
 #define HEAP_FLAGS 0xFF
 
 #if !defined(CONFIG_TEGRA_NVMAP)
-#include "mach/nvmap.h"
+#include "linux/nvmap.h"
 struct nvmap_device *nvmap_dev;
 #endif
 
@@ -373,7 +373,8 @@ struct nvmap_client *nvmap_create_client(struct nvmap_device *dev,
 }
 
 struct nvmap_handle_ref *nvmap_alloc(struct nvmap_client *client, size_t size,
-				     size_t align, unsigned int flags)
+				     size_t align, unsigned int flags,
+				     unsigned int heap_mask)
 {
 	return ion_alloc(client, size, align, HEAP_FLAGS);
 }

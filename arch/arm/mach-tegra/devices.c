@@ -38,12 +38,6 @@
 #include "gpio-names.h"
 #include "devices.h"
 
-#if !defined(CONFIG_ARCH_TEGRA_2x_SOC)
-#define UART_SOURCE_RATE 408000000
-#else
-#define UART_SOURCE_RATE 216000000
-#endif
-
 static struct resource i2c_resource1[] = {
 	[0] = {
 		.start	= INT_I2C,
@@ -590,28 +584,6 @@ static struct resource tegra_usb3_resources[] = {
 	},
 };
 
-static struct tegra_ulpi_config tegra_ehci2_ulpi_phy_config = {
-	/* All existing boards use GPIO PV0 for phy reset */
-	.reset_gpio = TEGRA_GPIO_PV0,
-	.clk = "cdev2",
-};
-
-static struct tegra_ehci_platform_data tegra_ehci1_pdata = {
-	.operating_mode = TEGRA_USB_OTG,
-	.power_down_on_bus_suspend = 1,
-};
-
-static struct tegra_ehci_platform_data tegra_ehci2_pdata = {
-	.phy_config = &tegra_ehci2_ulpi_phy_config,
-	.operating_mode = TEGRA_USB_HOST,
-	.power_down_on_bus_suspend = 1,
-};
-
-static struct tegra_ehci_platform_data tegra_ehci3_pdata = {
-	.operating_mode = TEGRA_USB_HOST,
-	.power_down_on_bus_suspend = 1,
-};
-
 static u64 tegra_ehci_dmamask = DMA_BIT_MASK(32);
 
 struct platform_device tegra_ehci1_device = {
@@ -620,7 +592,6 @@ struct platform_device tegra_ehci1_device = {
 	.dev	= {
 		.dma_mask	= &tegra_ehci_dmamask,
 		.coherent_dma_mask = DMA_BIT_MASK(32),
-		.platform_data = &tegra_ehci1_pdata,
 	},
 	.resource = tegra_usb1_resources,
 	.num_resources = ARRAY_SIZE(tegra_usb1_resources),
@@ -632,7 +603,6 @@ struct platform_device tegra_ehci2_device = {
 	.dev	= {
 		.dma_mask	= &tegra_ehci_dmamask,
 		.coherent_dma_mask = DMA_BIT_MASK(32),
-		.platform_data = &tegra_ehci2_pdata,
 	},
 	.resource = tegra_usb2_resources,
 	.num_resources = ARRAY_SIZE(tegra_usb2_resources),
@@ -644,7 +614,6 @@ struct platform_device tegra_ehci3_device = {
 	.dev	= {
 		.dma_mask	= &tegra_ehci_dmamask,
 		.coherent_dma_mask = DMA_BIT_MASK(32),
-		.platform_data = &tegra_ehci3_pdata,
 	},
 	.resource = tegra_usb3_resources,
 	.num_resources = ARRAY_SIZE(tegra_usb3_resources),
@@ -806,7 +775,6 @@ static struct plat_serial8250_port debug_uarta_platform_data[] = {
 		.type           = PORT_TEGRA,
 		.iotype         = UPIO_MEM,
 		.regshift       = 2,
-		.uartclk        = UART_SOURCE_RATE,
 	},
 	{
 		.flags          = 0,
@@ -822,7 +790,6 @@ static struct plat_serial8250_port debug_uartb_platform_data[] = {
 		.type           = PORT_TEGRA,
 		.iotype         = UPIO_MEM,
 		.regshift       = 2,
-		.uartclk        = UART_SOURCE_RATE,
 	},
 	{
 		.flags          = 0,
@@ -838,7 +805,6 @@ static struct plat_serial8250_port debug_uartc_platform_data[] = {
 		.type           = PORT_TEGRA,
 		.iotype         = UPIO_MEM,
 		.regshift       = 2,
-		.uartclk        = UART_SOURCE_RATE,
 	},
 	{
 		.flags          = 0,
@@ -854,7 +820,6 @@ static struct plat_serial8250_port debug_uartd_platform_data[] = {
 		.type           = PORT_TEGRA,
 		.iotype         = UPIO_MEM,
 		.regshift       = 2,
-		.uartclk        = UART_SOURCE_RATE,
 	},
 	{
 		.flags          = 0,
@@ -871,7 +836,6 @@ static struct plat_serial8250_port debug_uarte_platform_data[] = {
 		.type           = PORT_TEGRA,
 		.iotype         = UPIO_MEM,
 		.regshift       = 2,
-		.uartclk        = UART_SOURCE_RATE,
 	},
 	{
 		.flags          = 0,
@@ -1202,6 +1166,11 @@ struct platform_device tegra_pcm_device = {
 	.id = -1,
 };
 
+struct platform_device tegra_tdm_pcm_device = {
+	.name = "tegra-tdm-pcm-audio",
+	.id = -1,
+};
+
 static struct resource w1_resources[] = {
 	[0] = {
 		.start = INT_OWR,
@@ -1237,18 +1206,12 @@ static struct resource tegra_udc_resources[] = {
 
 static u64 tegra_udc_dmamask = DMA_BIT_MASK(32);
 
-static struct fsl_usb2_platform_data tegra_udc_pdata = {
-	.operating_mode	= FSL_USB2_DR_DEVICE,
-	.phy_mode	= FSL_USB2_PHY_UTMI,
-};
-
 struct platform_device tegra_udc_device = {
-	.name	= "fsl-tegra-udc",
-	.id	= -1,
+	.name	= "tegra-udc",
+	.id	= 0,
 	.dev	= {
 		.dma_mask	= &tegra_udc_dmamask,
 		.coherent_dma_mask = DMA_BIT_MASK(32),
-		.platform_data	= &tegra_udc_pdata,
 	},
 	.resource = tegra_udc_resources,
 	.num_resources = ARRAY_SIZE(tegra_udc_resources),
@@ -1410,25 +1373,6 @@ static struct resource tegra_wdt_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 };
-#else
-static struct resource tegra_wdt_resources[] = {
-	[0] = {
-		.start	= TEGRA_WDT0_BASE,
-		.end	= TEGRA_WDT0_BASE + TEGRA_WDT0_SIZE - 1,
-		.flags	= IORESOURCE_MEM,
-	},
-	[1] = {
-		.start	= TEGRA_TMR10_BASE,
-		.end	= TEGRA_TMR10_BASE + TEGRA_TMR10_SIZE - 1,
-		.flags	= IORESOURCE_MEM,
-	},
-	[2] = {
-		.start	= INT_WDT_CPU,
-		.end	= INT_WDT_CPU,
-		.flags	= IORESOURCE_IRQ,
-	},
-};
-#endif
 
 struct platform_device tegra_wdt_device = {
 	.name		= "tegra_wdt",
@@ -1436,6 +1380,80 @@ struct platform_device tegra_wdt_device = {
 	.num_resources	= ARRAY_SIZE(tegra_wdt_resources),
 	.resource	= tegra_wdt_resources,
 };
+#else
+static struct resource tegra_wdt0_resources[] = {
+	[0] = {
+		.start	= TEGRA_WDT0_BASE,
+		.end	= TEGRA_WDT0_BASE + TEGRA_WDT0_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= TEGRA_TMR7_BASE,
+		.end	= TEGRA_TMR7_BASE + TEGRA_TMR7_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[2] = {
+		.start	= INT_WDT_CPU,
+		.end	= INT_WDT_CPU,
+		.flags	= IORESOURCE_IRQ,
+	},
+#ifdef CONFIG_TEGRA_FIQ_DEBUGGER
+	[3] = {
+		.start	= TEGRA_QUATERNARY_ICTLR_BASE,
+		.end	= TEGRA_QUATERNARY_ICTLR_BASE + \
+				TEGRA_QUATERNARY_ICTLR_SIZE -1,
+		.flags	= IORESOURCE_MEM,
+	},
+#endif
+};
+
+static struct resource tegra_wdt1_resources[] = {
+	[0] = {
+		.start	= TEGRA_WDT1_BASE,
+		.end	= TEGRA_WDT1_BASE + TEGRA_WDT1_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= TEGRA_TMR8_BASE,
+		.end	= TEGRA_TMR8_BASE + TEGRA_TMR8_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+};
+
+static struct resource tegra_wdt2_resources[] = {
+	[0] = {
+		.start	= TEGRA_WDT2_BASE,
+		.end	= TEGRA_WDT2_BASE + TEGRA_WDT2_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= TEGRA_TMR9_BASE,
+		.end	= TEGRA_TMR9_BASE + TEGRA_TMR9_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+};
+
+struct platform_device tegra_wdt0_device = {
+	.name		= "tegra_wdt",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(tegra_wdt0_resources),
+	.resource	= tegra_wdt0_resources,
+};
+
+struct platform_device tegra_wdt1_device = {
+	.name		= "tegra_wdt",
+	.id		= 1,
+	.num_resources	= ARRAY_SIZE(tegra_wdt1_resources),
+	.resource	= tegra_wdt1_resources,
+};
+
+struct platform_device tegra_wdt2_device = {
+	.name		= "tegra_wdt",
+	.id		= 2,
+	.num_resources	= ARRAY_SIZE(tegra_wdt2_resources),
+	.resource	= tegra_wdt2_resources,
+};
+#endif
 
 static struct resource tegra_pwfm0_resource = {
 	.start	= TEGRA_PWFM0_BASE,
@@ -1487,56 +1505,6 @@ struct platform_device tegra_pwfm3_device = {
 	.id		= 3,
 	.num_resources	= 1,
 	.resource	= &tegra_pwfm3_resource,
-};
-
-static struct resource tegra_grhost_resources[] = {
-	{
-		.start = TEGRA_HOST1X_BASE,
-		.end = TEGRA_HOST1X_BASE + TEGRA_HOST1X_SIZE - 1,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.start = TEGRA_DISPLAY_BASE,
-		.end = TEGRA_DISPLAY_BASE + TEGRA_DISPLAY_SIZE - 1,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.start = TEGRA_DISPLAY2_BASE,
-		.end = TEGRA_DISPLAY2_BASE + TEGRA_DISPLAY2_SIZE - 1,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.start = TEGRA_VI_BASE,
-		.end = TEGRA_VI_BASE + TEGRA_VI_SIZE - 1,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.start = TEGRA_ISP_BASE,
-		.end = TEGRA_ISP_BASE + TEGRA_ISP_SIZE - 1,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.start = TEGRA_MPE_BASE,
-		.end = TEGRA_MPE_BASE + TEGRA_MPE_SIZE - 1,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.start = INT_SYNCPT_THRESH_BASE,
-		.end = INT_SYNCPT_THRESH_BASE + INT_SYNCPT_THRESH_NR - 1,
-		.flags = IORESOURCE_IRQ,
-	},
-	{
-		.start = INT_HOST1X_MPCORE_GENERAL,
-		.end = INT_HOST1X_MPCORE_GENERAL,
-		.flags = IORESOURCE_IRQ,
-	},
-};
-
-struct platform_device tegra_grhost_device = {
-	.name = "tegra_grhost",
-	.id = -1,
-	.resource = tegra_grhost_resources,
-	.num_resources = ARRAY_SIZE(tegra_grhost_resources),
 };
 
 static struct tegra_avp_platform_data tegra_avp_pdata = {
@@ -1730,12 +1698,71 @@ struct nvhost_device tegra_disp1_device = {
 	.num_resources	= ARRAY_SIZE(tegra_disp1_resources),
 };
 
+static struct resource tegra_disp2_resources[] = {
+	{
+		.name	= "irq",
+		.start	= INT_DISPLAY_B_GENERAL,
+		.end	= INT_DISPLAY_B_GENERAL,
+		.flags	= IORESOURCE_IRQ,
+	},
+	{
+		.name	= "regs",
+		.start	= TEGRA_DISPLAY2_BASE,
+		.end	= TEGRA_DISPLAY2_BASE + TEGRA_DISPLAY2_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name	= "fbmem",
+		.flags	= IORESOURCE_MEM,
+		.start	= 0,
+		.end	= 0,
+	},
+	{
+		.name	= "hdmi_regs",
+		.start	= TEGRA_HDMI_BASE,
+		.end	= TEGRA_HDMI_BASE + TEGRA_HDMI_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+};
+
+struct nvhost_device tegra_disp2_device = {
+	.name		= "tegradc",
+	.id		= 1,
+	.resource	= tegra_disp2_resources,
+	.num_resources	= ARRAY_SIZE(tegra_disp2_resources),
+	.dev = {
+		.platform_data = 0,
+	},
+};
+
 struct platform_device tegra_nvmap_device = {
 	.name	= "tegra-nvmap",
 	.id	= -1,
 };
 
-void tegra_init_debug_uart_rate(void)
+#ifndef CONFIG_ARCH_TEGRA_2x_SOC
+static struct resource tegra_cec_resources[] = {
+	[0] = {
+		.start = TEGRA_CEC_BASE,
+		.end = TEGRA_CEC_BASE + TEGRA_CEC_SIZE - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	[1] = {
+		.start = INT_CEC,
+		.end = INT_CEC,
+		.flags = IORESOURCE_IRQ,
+	},
+};
+
+struct platform_device tegra_cec_device = {
+	.name = "tegra_cec",
+	.id   = -1,
+	.resource = tegra_cec_resources,
+	.num_resources = ARRAY_SIZE(tegra_cec_resources),
+};
+#endif
+
+void __init tegra_init_debug_uart_rate(void)
 {
 	unsigned int uartclk;
 	struct clk *debug_uart_parent = clk_get_sys(NULL, "pll_p");

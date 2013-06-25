@@ -37,6 +37,7 @@
 #include <linux/usb/f_accessory.h>
 #include <linux/memblock.h>
 #include <linux/tegra_uart.h>
+#include <linux/rfkill-gpio.h>
 #include <linux/highmem.h>
 #include <linux/console.h>
 #include <linux/i2c/fm34_voice_processor.h>
@@ -53,7 +54,8 @@
 #include <mach/io.h>
 #include <mach/i2s.h>
 #include <mach/audio.h>
-#include <mach/tegra_wm8903_pdata.h>
+#include <mach/tegra_asoc_pdata.h>
+//#include <mach/tegra_wm8903_pdata.h>
 #include <mach/usb_phy.h>
 
 #include <asm/setup.h>
@@ -80,6 +82,23 @@
 #define ATAG_NVIDIA_PRESERVED_MEM_0	0x10000
 #define ATAG_NVIDIA_PRESERVED_MEM_N	2
 #define ATAG_NVIDIA_FORCE_32		0x7fffffff
+
+
+static struct resource tf101_bcm4329_rfkill_resources[] = {
+	{
+		.name   = "bcm4329_nshutdown_gpio",
+		.start  = TEGRA_GPIO_PU0,
+		.end    = TEGRA_GPIO_PU0,
+		.flags  = IORESOURCE_IO,
+	},
+};
+
+static struct platform_device tf101_bcm4329_rfkill_device = {
+	.name = "bcm4329_rfkill",
+	.id             = -1,
+	.num_resources  = ARRAY_SIZE(tf101_bcm4329_rfkill_resources),
+	.resource       = tf101_bcm4329_rfkill_resources,
+};
 
 struct tag_tegra {
 	__u32 bootarg_key;
@@ -110,52 +129,6 @@ static int __init hw_setup(char *opt)
 	return 0;
 }
 __setup("hw=", hw_setup);
-
-static struct tegra_utmip_config utmi_phy_config[] = {
-	[0] = {
-			.hssync_start_delay = 9,
-			.idle_wait_delay = 17,
-			.elastic_limit = 16,
-			.term_range_adj = 6,
-			.xcvr_setup = 15,
-			.xcvr_setup_offset = 0,
-			.xcvr_use_fuses = 1,
-			.xcvr_lsfslew = 2,
-			.xcvr_lsrslew = 2,
-	},
-	[1] = {
-			.hssync_start_delay = 9,
-			.idle_wait_delay = 17,
-			.elastic_limit = 16,
-			.term_range_adj = 6,
-			.xcvr_setup = 8,
-			.xcvr_setup_offset = 0,
-			.xcvr_use_fuses = 1,
-			.xcvr_lsfslew = 2,
-			.xcvr_lsrslew = 2,
-	},
-};
-
-static struct tegra_ulpi_config ulpi_phy_config = {
-	.reset_gpio = TEGRA_GPIO_PG2,
-	.clk = "cdev2",
-};
-
-static struct resource tf101_bcm4329_rfkill_resources[] = {
-	{
-		.name   = "bcm4329_nshutdown_gpio",
-		.start  = TEGRA_GPIO_PU0,
-		.end    = TEGRA_GPIO_PU0,
-		.flags  = IORESOURCE_IO,
-	},
-};
-
-static struct platform_device tf101_bcm4329_rfkill_device = {
-	.name = "bcm4329_rfkill",
-	.id             = -1,
-	.num_resources  = ARRAY_SIZE(tf101_bcm4329_rfkill_resources),
-	.resource       = tf101_bcm4329_rfkill_resources,
-};
 
 static struct resource tf101_bluesleep_resources[] = {
 	[0] = {
@@ -238,18 +211,6 @@ static __initdata struct tegra_clk_init_table tf101_clk_init_table[] = {
 	{ NULL,         NULL,                 0, 0 },
 };
 
-static struct tegra_ulpi_config tf101_ehci2_ulpi_phy_config = {
-	.reset_gpio = TEGRA_GPIO_PV1,
-	.clk = "cdev2",
-};
-
-static struct tegra_ehci_platform_data tf101_ehci2_ulpi_platform_data = {
-	.operating_mode = TEGRA_USB_HOST,
-	.power_down_on_bus_suspend = 1,
-	.phy_config = &tf101_ehci2_ulpi_phy_config,
-	.phy_type = TEGRA_USB_PHY_TYPE_LINK_ULPI,
-	.default_enable = true,
-};
 
 static struct tegra_i2c_platform_data tf101_i2c1_platform_data = {
 	.adapter_nr		= 0,
@@ -448,7 +409,8 @@ static int tf101_wakeup_key(void)
 	unsigned long status =
 		readl(IO_ADDRESS(TEGRA_PMC_BASE) + PMC_WAKE_STATUS);
 
-	return status & TEGRA_WAKE_GPIO_PV2 ? KEY_POWER : KEY_RESERVED;
+	return (status & (1 << TEGRA_WAKE_GPIO_PV2)) ?
+		KEY_POWER : KEY_RESERVED;
 }
 
 static struct gpio_keys_platform_data tf101_keys_platform_data = {
@@ -474,12 +436,25 @@ static void tf101_keys_init(void)
 }
 #endif
 
-static struct tegra_wm8903_platform_data tf101_audio_pdata = {
+static struct tegra_asoc_platform_data tf101_audio_pdata = {
 	.gpio_spkr_en		= TEGRA_GPIO_SPKR_EN,
 	.gpio_hp_det		= TEGRA_GPIO_HP_DET,
 	.gpio_hp_mute		= -1,
 	.gpio_int_mic_en	= TEGRA_GPIO_INT_MIC_EN,
 	.gpio_ext_mic_en	= TEGRA_GPIO_EXT_MIC_EN,
+	.i2s_param[HIFI_CODEC]	= {
+		.audio_port_id	= 0,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_I2S,
+	},
+	.i2s_param[BASEBAND]	= {
+		.audio_port_id	= -1,
+	},
+	.i2s_param[BT_SCO]	= {
+		.audio_port_id	= 3,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_DSP_A,
+	},
 };
 
 static struct platform_device tf101_audio_device = {
@@ -725,49 +700,6 @@ static int __init tf101_touch_init_atmel(void)
 	return 0;
 }
 
-static struct tegra_ehci_platform_data tegra_ehci_pdata[] = {
-	[0] = {
-			.phy_config = &utmi_phy_config[0],
-			.operating_mode = TEGRA_USB_HOST,
-			.power_down_on_bus_suspend = 1,
-			.default_enable = true,
-	},
-	[1] = {
-			.phy_config = &ulpi_phy_config,
-			.operating_mode = TEGRA_USB_HOST,
-			.power_down_on_bus_suspend = 1,
-			.phy_type = TEGRA_USB_PHY_TYPE_LINK_ULPI,
-			.default_enable = true,
-	},
-	[2] = {
-			.phy_config = &utmi_phy_config[1],
-			.operating_mode = TEGRA_USB_HOST,
-			.power_down_on_bus_suspend = 1,
-			.hotplug = 1,
-			.default_enable = true,
-	},
-};
-
-static struct usb_phy_plat_data tegra_usb_phy_pdata[] = {
-	[0] = {
-			.instance = 0,
-			.vbus_gpio = -1,
-	},
-	[1] = {
-			.instance = 1,
-			.vbus_gpio = -1,
-	},
-	[2] = {
-			.instance = 2,
-			.vbus_gpio = -1,
-	},
-};
-
-static struct tegra_otg_platform_data tegra_otg_pdata = {
-	.ehci_device = &tegra_ehci1_device,
-	.ehci_pdata = &tegra_ehci_pdata[0],
-};
-
 static struct fm34_platform_data tf101_fm34_pdata = {
 	.gpio_reset	= TEGRA_GPIO_PH2,
 	.gpio_en	= TEGRA_GPIO_PH3,
@@ -794,26 +726,136 @@ static int __init tf101_gps_init(void)
 		clk_enable(clk32);
 	}
 
-	tegra_gpio_enable(TEGRA_GPIO_PZ3);
 	return 0;
 }
 
+static struct tegra_usb_platform_data tegra_udc_pdata = {
+	.port_otg = true,
+	.has_hostpc = false,
+	.phy_intf = TEGRA_USB_PHY_INTF_UTMI,
+	.op_mode = TEGRA_USB_OPMODE_DEVICE,
+	.u_data.dev = {
+		.vbus_pmu_irq = 0,
+		.vbus_gpio = -1,
+		.charging_supported = false,
+		.remote_wakeup_supported = false,
+	},
+	.u_cfg.utmi = {
+		.hssync_start_delay = 0,
+		.elastic_limit = 16,
+		.idle_wait_delay = 17,
+		.term_range_adj = 6,
+		.xcvr_setup = 8,
+		.xcvr_lsfslew = 2,
+		.xcvr_lsrslew = 2,
+		.xcvr_setup_offset = 0,
+		.xcvr_use_fuses = 1,
+	},
+};
+
+static struct tegra_usb_platform_data tegra_ehci1_utmi_pdata = {
+	.port_otg = true,
+	.has_hostpc = false,
+	.phy_intf = TEGRA_USB_PHY_INTF_UTMI,
+	.op_mode	= TEGRA_USB_OPMODE_HOST,
+	.u_data.host = {
+		.vbus_gpio = TEGRA_GPIO_PD0,
+		.vbus_reg = NULL,
+		.hot_plug = true,
+		.remote_wakeup_supported = false,
+		.power_off_on_suspend = false,
+	},
+	.u_cfg.utmi = {
+		.hssync_start_delay = 9,
+		.elastic_limit = 16,
+		.idle_wait_delay = 17,
+		.term_range_adj = 6,
+		.xcvr_setup = 8,
+		.xcvr_lsfslew = 2,
+		.xcvr_lsrslew = 2,
+	},
+};
+
+static void ulpi_link_platform_open(void)
+{
+	int reset_gpio = TEGRA_GPIO_PV1;
+
+	gpio_request(reset_gpio, "ulpi_phy_reset");
+	gpio_direction_output(reset_gpio, 0);
+	msleep(5);
+	gpio_direction_output(reset_gpio, 1);
+}
+
+static struct tegra_usb_phy_platform_ops ulpi_link_plat_ops = {
+	.open = ulpi_link_platform_open,
+};
+
+static struct tegra_usb_platform_data tegra_ehci2_ulpi_link_pdata = {
+	.port_otg = false,
+	.has_hostpc = false,
+	.phy_intf = TEGRA_USB_PHY_INTF_ULPI_LINK,
+	.op_mode	= TEGRA_USB_OPMODE_HOST,
+	.u_data.host = {
+		.vbus_gpio = -1,
+		.vbus_reg = NULL,
+		.hot_plug = false,
+		.remote_wakeup_supported = false,
+		.power_off_on_suspend = true,
+	},
+	.u_cfg.ulpi = {
+		.shadow_clk_delay = 10,
+		.clock_out_delay = 1,
+		.data_trimmer = 4,
+		.stpdirnxt_trimmer = 4,
+		.dir_trimmer = 4,
+		.clk = "cdev2",
+	},
+	.ops = &ulpi_link_plat_ops,
+};
+
+static struct tegra_usb_platform_data tegra_ehci3_utmi_pdata = {
+	.port_otg = false,
+	.has_hostpc = false,
+	.phy_intf = TEGRA_USB_PHY_INTF_UTMI,
+	.op_mode	= TEGRA_USB_OPMODE_HOST,
+	.u_data.host = {
+		.vbus_gpio = TEGRA_GPIO_PD3,
+		.vbus_reg = NULL,
+		.hot_plug = true,
+		.remote_wakeup_supported = false,
+		.power_off_on_suspend = false,
+	},
+	.u_cfg.utmi = {
+		.hssync_start_delay = 9,
+		.elastic_limit = 16,
+		.idle_wait_delay = 17,
+		.term_range_adj = 6,
+		.xcvr_setup = 8,
+		.xcvr_lsfslew = 2,
+		.xcvr_lsrslew = 2,
+	},
+};
+
+static struct tegra_usb_otg_data tegra_otg_pdata = {
+	.ehci_device = &tegra_ehci1_device,
+	.ehci_pdata = &tegra_ehci1_utmi_pdata,
+};
 #ifdef CONFIG_USB_SUPPORT
 static void tf101_usb_init(void)
 {
-	tegra_usb_phy_init(tegra_usb_phy_pdata, ARRAY_SIZE(tegra_usb_phy_pdata));
-
 	/* OTG should be the first to be registered */
 	tegra_otg_device.dev.platform_data = &tegra_otg_pdata;
 	platform_device_register(&tegra_otg_device);
 
+	tegra_udc_device.dev.platform_data = &tegra_udc_pdata;
 	platform_device_register(&tegra_udc_device);
 
-	tegra_ehci2_device.dev.platform_data
-		= &tf101_ehci2_ulpi_platform_data;
+	tegra_ehci2_device.dev.platform_data = &tegra_ehci2_ulpi_link_pdata;
+	//tegra_ehci2_device.dev.platform_data
+	//	= &tf101_ehci2_ulpi_platform_data;
 	platform_device_register(&tegra_ehci2_device);
 
-	tegra_ehci3_device.dev.platform_data=&tegra_ehci_pdata[2];
+	tegra_ehci3_device.dev.platform_data = &tegra_ehci3_utmi_pdata;
 	platform_device_register(&tegra_ehci3_device);
 }
 #else
@@ -868,6 +910,11 @@ void __init tegra_tf101_reserve(void)
 	tegra_reserve(SZ_256M, SZ_8M + SZ_1M, SZ_16M);
 }
 
+static const char *tf101_dt_board_compat[] = {
+	"nvidia,ventana,tf101",
+	NULL
+};
+
 MACHINE_START(VENTANA, "ventana")
 	.boot_params    = 0x00000100,
 	.map_io         = tegra_map_common_io,
@@ -876,4 +923,5 @@ MACHINE_START(VENTANA, "ventana")
 	.init_irq	= tegra_init_irq,
 	.timer          = &tegra_timer,
 	.init_machine	= tegra_tf101_init,
+	.dt_compat	= tf101_dt_board_compat,
 MACHINE_END

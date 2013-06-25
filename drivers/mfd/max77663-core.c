@@ -114,8 +114,11 @@
 
 #define ONOFF_SFT_RST_MASK		(1 << 7)
 #define ONOFF_SLPEN_MASK		(1 << 2)
+#define ONOFF_PWR_OFF_MASK		(1 << 1)
 
 #define ONOFF_SLP_LPM_MASK		(1 << 5)
+
+#define ONOFF_IRQ_EN0_RISING		(1 << 3)
 
 enum {
 	CACHE_IRQ_LBT,
@@ -241,6 +244,15 @@ static struct max77663_irq_data max77663_irqs[MAX77663_IRQ_NR] = {
 	},
 };
 
+/* MAX77663 PMU doesn't allow PWR_OFF and SFT_RST setting in ONOFF_CFG1
+ * at the same time. So if it try to set PWR_OFF and SFT_RST to ONOFF_CFG1
+ * simultaneously, handle only SFT_RST and ignore PWR_OFF.
+ */
+#define CHECK_ONOFF_CFG1_MASK	(ONOFF_SFT_RST_MASK | ONOFF_PWR_OFF_MASK)
+#define CHECK_ONOFF_CFG1(_addr, _val)			\
+	unlikely((_addr == MAX77663_REG_ONOFF_CFG1) &&	\
+		 ((_val & CHECK_ONOFF_CFG1_MASK) == CHECK_ONOFF_CFG1_MASK))
+
 static inline int max77663_i2c_write(struct i2c_client *client, u8 addr,
 				     void *src, u32 bytes)
 {
@@ -260,10 +272,14 @@ static inline int max77663_i2c_write(struct i2c_client *client, u8 addr,
 		int i;
 
 		for (i = 0; i < (bytes * 2); i++) {
-			if (i % 2)
-				buf[i] = *src8++;
-			else
+			if (i % 2) {
+				if (CHECK_ONOFF_CFG1(buf[i - 1], *src8))
+					buf[i] = *src8++ & ~ONOFF_PWR_OFF_MASK;
+				else
+					buf[i] = *src8++;
+			} else {
 				buf[i] = addr++;
+			}
 		}
 		bytes = (bytes * 2) - 1;
 	}
@@ -889,6 +905,8 @@ static void max77663_irq_sync_unlock(struct irq_data *data)
 				irq_mask = irq_data->trigger_type;
 			else
 				irq_mask = GPIO_REFE_IRQ_EDGE_FALLING << shift;
+		} else {
+			irq_mask = GPIO_REFE_IRQ_NONE << shift;
 		}
 
 		ret = max77663_cache_write(chip->dev, GPIO_REG_ADDR(offset),
@@ -1117,6 +1135,10 @@ static int max77663_irq_init(struct max77663_chip *chip)
 	chip->cache_irq_mask[CACHE_IRQ_LBT] &= ~IRQ_GLBL_MASK;
 	max77663_write(chip->dev, MAX77663_REG_LBT_IRQ_MASK,
 		       &chip->cache_irq_mask[CACHE_IRQ_LBT], 1, 0);
+
+	chip->cache_irq_mask[CACHE_IRQ_ONOFF] &= ~ONOFF_IRQ_EN0_RISING;
+	max77663_write(chip->dev, MAX77663_REG_ONOFF_IRQ_MASK,
+		       &chip->cache_irq_mask[CACHE_IRQ_ONOFF], 1, 0);
 
 	return 0;
 }
@@ -1358,12 +1380,7 @@ static int max77663_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct max77663_chip *chip = i2c_get_clientdata(client);
-	struct max77663_platform_data *pdata = chip->pdata;
 	int ret;
-
-	/* PMU_STAT_LED */
-	if (pdata->has_stat_led)
-		max77663_gpio_dir_input(&chip->gpio, pdata->stat_led_gpio);
 
 	if (client->irq)
 		disable_irq(client->irq);
@@ -1379,7 +1396,6 @@ static int max77663_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct max77663_chip *chip = i2c_get_clientdata(client);
-	struct max77663_platform_data *pdata = chip->pdata;
 	int ret;
 
 	ret = max77663_sleep(chip, false);
@@ -1390,12 +1406,6 @@ static int max77663_resume(struct device *dev)
 
 	if (client->irq)
 		enable_irq(client->irq);
-
-	/* PMU_STAT_LED */
-	if (pdata->has_stat_led) {
-		max77663_gpio_dir_output(&chip->gpio, MAX77663_GPIO7,
-			pdata->stat_led_active_low ? 0 : 1);
-	}
 
 	return 0;
 }

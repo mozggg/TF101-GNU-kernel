@@ -28,7 +28,7 @@
 #include <linux/pwm_backlight.h>
 #include <linux/nvhost.h>
 #include <linux/mm.h>
-#include <mach/nvmap.h>
+#include <linux/nvmap.h>
 #include <mach/irqs.h>
 #include <mach/iomap.h>
 #include <mach/dc.h>
@@ -37,6 +37,7 @@
 #include "devices.h"
 #include "gpio-names.h"
 #include "board.h"
+#include "tegra2_host1x_devices.h"
 
 #define tf101_pnl_pwr_enb	TEGRA_GPIO_PC6
 #define tf101_bl_enb		TEGRA_GPIO_PD4
@@ -50,6 +51,7 @@
 
 static struct regulator *tf101_hdmi_reg = NULL;
 static struct regulator *tf101_hdmi_pll = NULL;
+static struct regulator *pnl_pwr;
 
 
 static int tf101_backlight_init(struct device *dev) {
@@ -62,8 +64,6 @@ static int tf101_backlight_init(struct device *dev) {
 	ret = gpio_direction_output(tf101_bl_enb, 1);
 	if (ret < 0)
 		gpio_free(tf101_bl_enb);
-	else
-		tegra_gpio_enable(tf101_bl_enb);
 
 	return ret;
 };
@@ -71,7 +71,6 @@ static int tf101_backlight_init(struct device *dev) {
 static void tf101_backlight_exit(struct device *dev) {
 	gpio_set_value(tf101_bl_enb, 0);
 	gpio_free(tf101_bl_enb);
-	tegra_gpio_disable(tf101_bl_enb);
 }
 
 static int tf101_backlight_notify(struct device *unused, int brightness)
@@ -111,7 +110,16 @@ static int tf101_panel_enable(void)
 		regulator_put(reg);
 	}
 
-	gpio_set_value(tf101_pnl_pwr_enb, 1);
+	if (pnl_pwr == NULL) {
+		pnl_pwr = regulator_get(NULL, "pnl_pwr");
+		if (WARN_ON(IS_ERR(pnl_pwr)))
+			pr_err("%s: couldn't get regulator pnl_pwr: %ld\n",
+				__func__, PTR_ERR(pnl_pwr));
+		else
+			regulator_enable(pnl_pwr);
+	} else {
+		regulator_enable(pnl_pwr);
+	}
 	mdelay(tf101_pnl_to_lvds_ms);
 	gpio_set_value(tf101_lvds_shutdown, 1);
 	mdelay(tf101_lvds_to_bl_ms);
@@ -121,7 +129,7 @@ static int tf101_panel_enable(void)
 static int tf101_panel_disable(void)
 {
 	gpio_set_value(tf101_lvds_shutdown, 0);
-	gpio_set_value(tf101_pnl_pwr_enb, 0);
+	regulator_disable(pnl_pwr);
 	return 0;
 }
 
@@ -272,7 +280,7 @@ static struct tegra_dc_platform_data tf101_disp1_pdata = {
 };
 
 static struct tegra_dc_platform_data tf101_disp2_pdata = {
-	.flags		= 0,
+	.flags		= TEGRA_DC_FLAG_ENABLED,
 	.default_out	= &tf101_disp2_out,
 	.fb		= &tf101_hdmi_fb_data,
 };
@@ -326,10 +334,9 @@ static struct platform_device tf101_nvmap_device = {
 
 static struct platform_device *tf101_gfx_devices[] __initdata = {
 	&tf101_nvmap_device,
-#ifdef CONFIG_TEGRA_GRHOST
-	&tegra_grhost_device,
-#endif
 	&tegra_pwfm2_device,
+};
+static struct platform_device *ventana_backlight_devices[] __initdata = {
 	&tf101_backlight_device,
 };
 
@@ -347,16 +354,8 @@ static void tf101_panel_early_suspend(struct early_suspend *h)
 	if (num_registered_fb > 1)
 		fb_blank(registered_fb[1], FB_BLANK_NORMAL);
 #ifdef CONFIG_TEGRA_CONVSERVATIVE_GOV_ON_EARLYSUPSEND
-	cpufreq_save_default_governor();
-	cpufreq_set_conservative_governor();
-	cpufreq_set_conservative_governor_param("up_threshold",
-			SET_CONSERVATIVE_GOVERNOR_UP_THRESHOLD);
-
-	cpufreq_set_conservative_governor_param("down_threshold",
-			SET_CONSERVATIVE_GOVERNOR_DOWN_THRESHOLD);
-
-	cpufreq_set_conservative_governor_param("freq_step",
-		SET_CONSERVATIVE_GOVERNOR_FREQ_STEP);
+	cpufreq_store_default_gov();
+	cpufreq_change_gov(cpufreq_conservative_gov);
 #endif
 }
 
@@ -364,7 +363,7 @@ static void tf101_panel_late_resume(struct early_suspend *h)
 {
 	unsigned i;
 #ifdef CONFIG_TEGRA_CONVSERVATIVE_GOV_ON_EARLYSUPSEND
-	cpufreq_restore_default_governor();
+	cpufreq_restore_default_gov();
 #endif
 	for (i = 0; i < num_registered_fb; i++)
 		fb_blank(registered_fb[i], FB_BLANK_UNBLANK);
@@ -393,19 +392,12 @@ int __init tf101_panel_init(void)
 	int err;
 	struct resource *res;
 
-	gpio_request(tf101_pnl_pwr_enb, "pnl_pwr_enb");
-	gpio_direction_output(tf101_pnl_pwr_enb, 1);
-	tegra_gpio_enable(tf101_pnl_pwr_enb);
-
 	gpio_request(tf101_lvds_shutdown, "lvds_shdn");
 	gpio_direction_output(tf101_lvds_shutdown, 1);
-	tegra_gpio_enable(tf101_lvds_shutdown);
 
-	tegra_gpio_enable(tf101_hdmi_enb);
 	gpio_request(tf101_hdmi_enb, "hdmi_5v_en");
 	gpio_direction_output(tf101_hdmi_enb, 1);
 
-	tegra_gpio_enable(tf101_hdmi_hpd);
 	gpio_request(tf101_hdmi_hpd, "hdmi_hpd");
 	gpio_direction_input(tf101_hdmi_hpd);
 
@@ -418,6 +410,12 @@ int __init tf101_panel_init(void)
 
 	tf101_carveouts[1].base = tegra_carveout_start;
 	tf101_carveouts[1].size = tegra_carveout_size;
+
+#ifdef CONFIG_TEGRA_GRHOST
+	err = tegra2_register_host1x_devices();
+	if (err)
+		return err;
+#endif
 
 	err = platform_add_devices(tf101_gfx_devices,
 				   ARRAY_SIZE(tf101_gfx_devices));
@@ -434,6 +432,16 @@ int __init tf101_panel_init(void)
 		IORESOURCE_MEM, "fbmem");
 	res->start = tegra_fb2_start;
 	res->end = tegra_fb2_start + tegra_fb2_size - 1;
+	/*
+	 * If the bootloader fb2 is valid, copy it to the fb2, or else
+	 * clear fb2 to avoid garbage on dispaly2.
+	 */
+	if (tegra_bootloader_fb2_size)
+		tegra_move_framebuffer(tegra_fb2_start,
+			tegra_bootloader_fb2_start,
+			min(tegra_fb2_size, tegra_bootloader_fb2_size));
+	else
+		tegra_clear_framebuffer(tegra_fb2_start, tegra_fb2_size);
 
 	if (!err)
 		err = nvhost_device_register(&tf101_disp1_device);
@@ -441,6 +449,9 @@ int __init tf101_panel_init(void)
 	if (!err)
 		err = nvhost_device_register(&tf101_disp2_device);
 #endif
+
+	err = platform_add_devices(ventana_backlight_devices,
+				   ARRAY_SIZE(ventana_backlight_devices));
 
 	return err;
 }

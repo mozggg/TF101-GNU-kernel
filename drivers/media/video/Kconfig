@@ -24,11 +24,6 @@ config VIDEOBUF_DMA_CONTIG
 	select VIDEOBUF_GEN
 	tristate
 
-config VIDEOBUF_DMA_NVMAP
-	depends on HAS_DMA
-	select VIDEOBUF_GEN
-	tristate
-
 config VIDEOBUF_DVB
 	tristate
 	select VIDEOBUF_GEN
@@ -71,6 +66,13 @@ config VIDEOBUF2_DMA_SG
 	select VIDEOBUF2_CORE
 	select VIDEOBUF2_MEMOPS
 	tristate
+
+config VIDEOBUF2_DMA_NVMAP
+	select VIDEOBUF2_CORE
+	select VIDEOBUF2_MEMOPS
+	select NVMAP_ALLOW_SYSMEM
+	tristate
+
 #
 # Multimedia Video device configuration
 #
@@ -934,8 +936,8 @@ config VIDEO_SH_MOBILE_CEU
 
 config VIDEO_TEGRA
 	tristate "Tegra soc_camera host driver"
-	depends on VIDEO_DEV && ARCH_TEGRA && SOC_CAMERA
-	select VIDEOBUF_DMA_NVMAP
+	depends on VIDEO_DEV && ARCH_TEGRA && SOC_CAMERA && HAS_DMA && HAVE_CLK
+	select VIDEOBUF2_DMA_NVMAP
 	---help---
 	  This is a v4l2 driver for the Tegra camera interface
 

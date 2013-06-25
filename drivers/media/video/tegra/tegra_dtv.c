@@ -390,9 +390,6 @@ static void __force_xfer_stop(struct dtv_stream *s)
 		}
 	}
 
-	/* just in case. dma should be cancelled before this */
-	if (!tegra_dma_is_empty(s->dma_chan))
-		pr_err("%s: DMA channel is not empty!\n", __func__);
 	tegra_dma_cancel(s->dma_chan);
 	s->xferring = false;
 
@@ -735,7 +732,7 @@ static void dtv_debugfs_exit(struct tegra_dtv_context *dtv_ctx)
 	debugfs_remove(dtv_ctx->d);
 }
 #else
-static int dtv_debugfs_init(struct tegra_dtv_context *dtv_ctx) { return 0 }
+static int dtv_debugfs_init(struct tegra_dtv_context *dtv_ctx) { return 0; }
 static void dtv_debugfs_exit(struct tegra_dtv_context *dtv_ctx) {};
 #endif
 
@@ -924,6 +921,7 @@ static int tegra_dtv_probe(struct platform_device *pdev)
 		ret = -EIO;
 		goto fail_no_clk;
 	}
+	dtv_ctx->clk = clk;
 	ret = clk_enable(clk);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "cannot enable clk for tegra_dtv.\n");
@@ -1011,6 +1009,8 @@ static int __devexit tegra_dtv_remove(struct platform_device *pdev)
 	tear_down_dma(dtv_ctx);
 	release_stream_buffer(&dtv_ctx->stream, dtv_ctx->stream.num_bufs);
 
+	clk_put(dtv_ctx->clk);
+
 	misc_deregister(&dtv_ctx->miscdev);
 
 	return 0;
@@ -1019,11 +1019,38 @@ static int __devexit tegra_dtv_remove(struct platform_device *pdev)
 #ifdef CONFIG_PM
 static int tegra_dtv_suspend(struct platform_device *pdev, pm_message_t state)
 {
+	struct tegra_dtv_context *dtv_ctx;
+
+	pr_info("%s: suspend dtv.\n", __func__);
+
+	dtv_ctx = platform_get_drvdata(pdev);
+
+	/* stop xferring */
+	mutex_lock(&dtv_ctx->stream.mtx);
+	if (dtv_ctx->stream.xferring) {
+		stop_xfer_unsafe(&dtv_ctx->stream);
+		/* clean up stop condition */
+		complete(&dtv_ctx->stream.stop_completion);
+		__force_xfer_stop(&dtv_ctx->stream);
+	}
+	/* wakeup any pending process */
+	wakeup_suspend(&dtv_ctx->stream);
+	mutex_unlock(&dtv_ctx->stream.mtx);
+
+	clk_disable(dtv_ctx->clk);
+
 	return 0;
 }
 
 static int tegra_dtv_resume(struct platform_device *pdev)
 {
+	struct tegra_dtv_context *dtv_ctx;
+
+	pr_info("%s: resume dtv.\n", __func__);
+
+	dtv_ctx = platform_get_drvdata(pdev);
+	clk_enable(dtv_ctx->clk);
+
 	return 0;
 }
 #endif /* CONFIG_PM */
