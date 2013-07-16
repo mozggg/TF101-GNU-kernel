@@ -678,6 +678,7 @@ export KBUILD_IMAGE ?= vmlinux
 #
 # INSTALL_PATH specifies where to place the updated kernel and system map
 # images. Default is /boot, but you can set it to other values
+INSTALL_PATH = ./compiled_kernels
 export	INSTALL_PATH ?= /boot
 
 #
@@ -686,7 +687,9 @@ export	INSTALL_PATH ?= /boot
 # makefile but the argument can be passed to make if needed.
 #
 
-MODLIB	= $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
+INSTALL_MOD_PATH = $(INSTALL_PATH)
+# MODLIB	= $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
+MODLIB	= $(INSTALL_MOD_PATH)/modules/$(KERNELRELEASE)
 export MODLIB
 
 #
