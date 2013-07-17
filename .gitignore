@@ -84,3 +84,10 @@ GTAGS
 *.orig
 *~
 \#*#
+
+# other specific files
+/config*
+arch/arm/boot/zImage*
+compiled_kernels/*
+/initrd/*
+/tf101*config
