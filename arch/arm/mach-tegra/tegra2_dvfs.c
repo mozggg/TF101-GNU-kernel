@@ -40,56 +40,69 @@ static bool tegra_dvfs_cpu_disabled = true;
 #endif
 
 static const int core_millivolts[MAX_DVFS_FREQS] =
-	{950, 1000, 1100, 1200, 1225, 1275, 1300, 1400, 1450};
+	{950, 1000, 1100, 1200, 1225, 1275, 1300};
+/*	{950, 1000, 1100, 1200, 1225, 1275, 1300};               original */
+/*	{950, 1000, 1100, 1200, 1225, 1275, 1300, 1400, 1450};   jhinta */
+/*	{950, 1000, 1100, 1200, 1225, 1275, 1300, 1400, 1500};   tim-kat */
+
 static const int cpu_millivolts[MAX_DVFS_FREQS] =
-	{750, 775, 800, 825, 850, 875, 900, 925, 950, 975, 1000, 1175, 1275, 1325, 1375, 1400};
+	{750, 775, 800, 825, 850, 875, 900,  925,  950,  975,  1000, 1025, 1050, 1100, 1125};
+/*	{750, 775, 800, 825, 850, 875, 900,  925,  950,  975,  1000, 1025, 1050, 1100, 1125};         original */
+/*	{750, 775, 800, 825, 850, 875, 900,  925,  950,  975,  1000, 1175, 1275, 1325, 1375, 1400};   jhinta */
+/*	{775, 775, 800, 850, 875, 950, 1000, 1100, 1275, 1350, 1425, 1450, 1475};                     tim-kat */
 
 static const int cpu_speedo_nominal_millivolts[] =
 /* spedo_id  0,    1,    2 */
-	{ 1100, 1350, 1125 };
-
+		{ 1100, 1100, 1125 };
+/*		{ 1100, 1025, 1125 };    original */
+/*		{ 1100, 1350, 1125 };    jhinta */
+/*		{ 1150, 1350, 1150 };    tim-kat */
+	
 static const int core_speedo_nominal_millivolts[] =
 /* spedo_id  0,    1,    2 */
-	{ 1225, 1400, 1300 };
+		{ 1225, 1225, 1300 };
+/*		{ 1225, 1225, 1300 };   original */
+/*		{ 1225, 1400, 1300 };   jhinta */
+/*		{ 1250, 1400, 1250 };   tim-kat */
 
 #define KHZ 1000
 #define MHZ 1000000
 
 static struct dvfs_rail tegra2_dvfs_rail_vdd_cpu = {
 	.reg_id = "vdd_cpu",
-	.max_millivolts = 1400, //1125
+	.max_millivolts = 1125, /* 1125 */
 	.min_millivolts = 750,
-	.nominal_millivolts = 1400, //1125
+	.nominal_millivolts = 1125, /* 1125 */
 };
 
 static struct dvfs_rail tegra2_dvfs_rail_vdd_core = {
 	.reg_id = "vdd_core",
-	.max_millivolts = 1450, //1300
+	.max_millivolts = 1300, /* 1300 */
 	.min_millivolts = 950,
-	.nominal_millivolts = 1450, //1225
+	.nominal_millivolts = 1225, /* 1225 */
 	.step = 150, /* step vdd_core by 150 mV to allow vdd_aon to follow */
 };
 
 static struct dvfs_rail tegra2_dvfs_rail_vdd_aon = {
 	.reg_id = "vdd_aon",
-	.max_millivolts = 1450, //1300
+	.max_millivolts = 1300, /* 1300 */
 	.min_millivolts = 950,
-	.nominal_millivolts = 1450, //1225
+	.nominal_millivolts = 1225, /* 1225 */
 #ifndef CONFIG_TEGRA_CORE_DVFS
 	.disabled = true,
 #endif
 };
 
-/* vdd_core and vdd_aon must be 50 mV higher than vdd_cpu */
+/* vdd_core and vdd_aon must be 120 mV higher than vdd_cpu */
 static int tegra2_dvfs_rel_vdd_cpu_vdd_core(struct dvfs_rail *vdd_cpu,
 	struct dvfs_rail *vdd_core)
 {
 	if (vdd_cpu->new_millivolts > vdd_cpu->millivolts &&
-	    vdd_core->new_millivolts < vdd_cpu->new_millivolts + 50)
-		return vdd_cpu->new_millivolts + 50;
+	    vdd_core->new_millivolts < vdd_cpu->new_millivolts + 120)
+		return vdd_cpu->new_millivolts + 120;
 
-	if (vdd_core->new_millivolts < vdd_cpu->millivolts + 50)
-		return vdd_cpu->millivolts + 50;
+	if (vdd_core->new_millivolts < vdd_cpu->millivolts + 120)
+		return vdd_cpu->millivolts + 120;
 
 	return vdd_core->new_millivolts;
 }
@@ -105,13 +118,13 @@ static int tegra2_dvfs_rel_vdd_core_vdd_aon(struct dvfs_rail *vdd_core,
 
 static struct dvfs_relationship tegra2_dvfs_relationships[] = {
 	{
-		/* vdd_core must be 50 mV higher than vdd_cpu */
+		/* vdd_core must be 120 mV higher than vdd_cpu */
 		.from = &tegra2_dvfs_rail_vdd_cpu,
 		.to = &tegra2_dvfs_rail_vdd_core,
 		.solve = tegra2_dvfs_rel_vdd_cpu_vdd_core,
 	},
 	{
-		/* vdd_aon must be 50 mV higher than vdd_cpu */
+		/* vdd_aon must be 120 mV higher than vdd_cpu */
 		.from = &tegra2_dvfs_rail_vdd_cpu,
 		.to = &tegra2_dvfs_rail_vdd_aon,
 		.solve = tegra2_dvfs_rel_vdd_cpu_vdd_core,
@@ -155,23 +168,44 @@ static struct dvfs_rail *tegra2_dvfs_rails[] = {
 	}
 
 static struct dvfs dvfs_init[] = {
-	/* Cpu voltages (mV):	   750, 775, 800, 825, 850, 875,  900,  925,  950,  975,  1000, 1025, 1050, 1100, 1125 */
+	/* Cpu voltages (mV):      750, 775, 800, 825, 850, 875,  900,  925,  950,  975,  1000, 1025, 1050, 1100, 1125 */
+	/* original:               750, 775, 800, 825, 850, 875,  900,  925,  950,  975,  1000, 1025, 1050, 1100, 1125 */
+	/* jhinta:                 750, 775, 800, 825, 850, 875,  900,  925,  950,  975,  1000, 1175, 1275, 1325, 1375, 1400 */
+	/* tim-kat:                775, 775, 800, 850, 875, 950, 1000, 1100, 1275, 1350,  1425, 1450, 1475 */
 	CPU_DVFS("cpu", 0, 0, MHZ, 314, 314, 314, 456, 456, 456,  608,  608,  608,  760,  817,  817,  912,  1000),
 	CPU_DVFS("cpu", 0, 1, MHZ, 314, 314, 314, 456, 456, 456,  618,  618,  618,  770,  827,  827,  922,  1000),
 	CPU_DVFS("cpu", 0, 2, MHZ, 494, 494, 494, 675, 675, 817,  817,  922,  922,  1000),
 	CPU_DVFS("cpu", 0, 3, MHZ, 730, 760, 845, 845, 940, 1000),
 
-	CPU_DVFS("cpu", 1, 0, MHZ, 380, 380, 503, 503, 655, 655,  798,  798,  902,  902,  960,  1000, 1200, 1408, 1504, 1600),
-	CPU_DVFS("cpu", 1, 1, MHZ, 389, 389, 503, 503, 655, 760,  798,  798,  950,  950,  1000, 1200, 1408, 1504, 1600),
-	CPU_DVFS("cpu", 1, 2, MHZ, 598, 598, 750, 750, 893, 893,  1000, 1200, 1408, 1504, 1600),
-	CPU_DVFS("cpu", 1, 3, MHZ, 730, 760, 845, 845, 940, 1000, 1200, 1408, 1504, 1600),
+	CPU_DVFS("cpu", 1, 0, MHZ, 380, 380, 503, 503, 655, 655,  798,  798,  902,  902,  960,  1000, 1096, 1200),
+	CPU_DVFS("cpu", 1, 1, MHZ, 389, 389, 503, 503, 655, 760,  798,  798,  950,  950,  1000, 1096, 1200),
+	CPU_DVFS("cpu", 1, 2, MHZ, 598, 598, 750, 750, 893, 893,  1000, 1096, 1200),
+	CPU_DVFS("cpu", 1, 3, MHZ, 730, 760, 845, 845, 940, 1000, 1096, 1200),
+/* sni original
+ *	CPU_DVFS("cpu", 1, 0, MHZ, 380, 380, 503, 503, 655, 655,  798,  798,  902,  902,  960,  1000),
+ *	CPU_DVFS("cpu", 1, 1, MHZ, 389, 389, 503, 503, 655, 760,  798,  798,  950,  950,  1000),
+ *	CPU_DVFS("cpu", 1, 2, MHZ, 598, 598, 750, 750, 893, 893,  1000),
+ *	CPU_DVFS("cpu", 1, 3, MHZ, 730, 760, 845, 845, 940, 1000), */
+/* jhinta
+ * 	CPU_DVFS("cpu", 1, 0, MHZ, 380, 380, 503, 503, 655, 655,  798,  798,  902,  902,  960,  1000, 1200, 1408, 1504, 1600),
+ * 	CPU_DVFS("cpu", 1, 1, MHZ, 389, 389, 503, 503, 655, 760,  798,  798,  950,  950,  1000, 1200, 1408, 1504, 1600),
+ * 	CPU_DVFS("cpu", 1, 2, MHZ, 598, 598, 750, 750, 893, 893,  1000, 1200, 1408, 1504, 1600),
+ * 	CPU_DVFS("cpu", 1, 3, MHZ, 730, 760, 845, 845, 940, 1000, 1200, 1408, 1504, 1600), */
+/* tim-kat
+ *	CPU_DVFS("cpu", 1, 0, MHZ, 380, 380, 503, 503, 655, 798,  960,  1000, 1200, 1400, 1504, 1600, 1640, 1704),
+ *	CPU_DVFS("cpu", 1, 1, MHZ, 216, 312, 456, 608, 760, 912,  1000, 1200, 1400, 1504, 1600, 1640, 1704),
+ *	CPU_DVFS("cpu", 1, 2, MHZ, 598, 598, 750, 750, 893, 1000, 1200, 1400, 1504, 1600, 1640, 1704),
+ *	CPU_DVFS("cpu", 1, 3, MHZ, 730, 760, 845, 940, 1000,1200, 1400, 1504, 1600, 1640, 1704), */
 
-	CPU_DVFS("cpu", 2, 0, MHZ,   0,   0, 503, 503, 655, 760,  798,  798,  950,  970,  1015,  1040,  1100, 1178, 1200),
-	CPU_DVFS("cpu", 2, 1, MHZ,   0,   0, 503, 503, 655, 760,  798,  798,  950,  970,  1015,  1040,  1100, 1200),
-	CPU_DVFS("cpu", 2, 2, MHZ,   0,   0, 680, 680, 769, 845,  902,  902,  1026, 1092, 1140,  1197,  1200),
+	CPU_DVFS("cpu", 2, 0, MHZ,   0,   0, 503, 503, 655, 760,  798,  798,  950,  970,  1015, 1040, 1100, 1178, 1200),
+	CPU_DVFS("cpu", 2, 1, MHZ,   0,   0, 503, 503, 655, 760,  798,  798,  950,  970,  1015, 1040, 1100, 1200),
+	CPU_DVFS("cpu", 2, 2, MHZ,   0,   0, 680, 680, 769, 845,  902,  902,  1026, 1092, 1140, 1197, 1200),
 	CPU_DVFS("cpu", 2, 3, MHZ,   0,   0, 845, 845, 940, 1000, 1045, 1045, 1130, 1160, 1200),
 
-	/* Core voltages (mV):           950,    1000,   1100,   1200,   1225,   1275,   1300 */
+	/* Core voltages (mV):           950,    1000  , 1100,   1200,   1225,   1275,   1300               */
+	/* original:                     950,    1000,   1100,   1200,   1225,   1275,   1300               */
+	/* jhinta:                       950,    1000,   1100,   1200,   1225,   1275,   1300, 1400, 1450   */
+	/* tim-kat:                      950,    1000,   1100,   1200,   1225,   1275,   1300, 1400, 1500}; */
 	CORE_DVFS("emc",     -1, 1, KHZ, 57000,  333000, 380000, 666000, 666000, 666000, 760000),
 
 	CORE_DVFS("sdmmc1",  -1, 1, KHZ, 44000,  52000,  52000,  52000,  52000,  52000,  52000),
